@@ -2,11 +2,19 @@ const startButton = document.getElementById('startButton');
 const video = document.getElementById('video');
 const description = document.getElementById('description');
 
+let facingMode = 'user'; // Default to front camera
+let stream = null;
+
 startButton.addEventListener('click', () => {
-  navigator.mediaDevices.getUserMedia({ video: true })
-    .then(stream => {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } })
+    .then(newStream => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      stream = newStream;
       video.srcObject = stream;
       video.play();
+
 
       // Load the COCO-SSD model
       cocoSsd.load().then(model => {
