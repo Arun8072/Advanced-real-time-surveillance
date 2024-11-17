@@ -5,8 +5,6 @@ const description = document.getElementById('description');
 
 let facingMode = 'user'; // Default to front camera
 let stream = null;
-let src = null;
-let frame = null;
 
 startButton.addEventListener('click', () => {
   console.log('Starting camera...');
@@ -24,15 +22,19 @@ startButton.addEventListener('click', () => {
       console.log('Initializing OpenCV.js...');
       cv.onRuntimeInitialized = () => {
         console.log('OpenCV.js initialized.');
-        src = new cv.VideoCapture(video);
-        frame = new cv.Mat();
+
+        // Create a VideoCapture object
+        const videoCapture = new cv.VideoCapture(video);
+
+        // Create a Mat object to hold the frame
+        const frame = new cv.Mat();
 
         console.log('Loading COCO-SSD model...');
         cocoSsd.load().then(model => {
           console.log('Model loaded successfully.');
 
           setInterval(() => {
-            src.read(frame);
+            videoCapture.read(frame);
             console.log('Frame captured.');
 
             // Convert the frame to a tensor
