@@ -29,14 +29,14 @@
             margin: 0 auto;
         }
 
-        #video, #canvas {
+        #video, #canvas, #placeholder-canvas {
             width: 100%;
             height: auto;
             max-height: 480px;
             display: block;
         }
 
-        #canvas {
+        #canvas, #placeholder-canvas {
             position: absolute;
             top: 0;
             left: 0;
@@ -77,16 +77,35 @@
             text-align: center;
         }
 
-        #log {
+        #log, #nlpDescription {
             white-space: pre-wrap;
             font-family: monospace;
             font-size: 14px;
-            max-height: 200px;
             overflow-y: auto;
+            position: relative;
         }
 
-        #nlpDescription p {
-            margin: 5px 0;
+        #log {
+            max-height: 80px; /* Approximately 4 lines */
+        }
+
+        #nlpDescription {
+            max-height: 200px; /* Approximately 10 lines */
+        }
+
+        .expand-btn {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        .expanded {
+            max-height: none !important;
         }
     </style>
 </head>
@@ -96,6 +115,7 @@
         <div class="video-container">
             <video id="video" playsinline></video>
             <canvas id="canvas"></canvas>
+            <canvas id="placeholder-canvas"></canvas>
         </div>
         <div class="controls">
             <button id="toggleCamera">Start Camera</button>
@@ -104,15 +124,19 @@
         </div>
         <div id="total_obj">Total Detected <span id="obj_count">0</span> objects</div>
         <div id="detectionResults"></div>
-        <div id="nlpDescription"></div>
-        <div id="log"></div>
+        <div id="nlpDescription">
+            <button class="expand-btn">Expand</button>
+        </div>
+        <div id="log">
+            <button class="expand-btn">Expand</button>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
     <script>
-        let video, canvas, ctx, model, stream;
+        let video, canvas, ctx, placeholderCanvas, placeholderCtx, model, stream;
         let isDetecting = false;
         let currentCameraFacingMode = 'environment';
         const objCountSpan = document.getElementById('obj_count');
@@ -204,11 +228,15 @@
 
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
+                placeholderCanvas.width = video.videoWidth;
+                placeholderCanvas.height = video.videoHeight;
                 log(`Video dimensions: ${video.videoWidth}x${video.videoHeight}`);
 
                 toggleCameraButton.textContent = 'Stop Camera';
                 switchCameraButton.disabled = false;
                 startDetectionButton.disabled = false;
+                canvas.style.display = 'block';
+                placeholderCanvas.style.display = 'none';
             } catch (error) {
                 log('Error starting camera: ' + error.message);
             }
@@ -222,6 +250,9 @@
                 toggleCameraButton.textContent = 'Start Camera';
                 switchCameraButton.disabled = true;
                 startDetectionButton.disabled = true;
+                canvas.style.display = 'none';
+                placeholderCanvas.style.display = 'block';
+                placeholderCtx.drawImage(canvas, 0, 0);
                 log('Camera stopped');
             }
         }
@@ -289,9 +320,9 @@
                 const nlpDescription = generateNLPDescription(predictions);
                 if (nlpDescription) {
                     const descriptionElement = document.createElement('p');
-                    descriptionElement.textContent = nlpDescription;
+                    descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
                     nlpDescriptionDiv.insertBefore(descriptionElement, nlpDescriptionDiv.firstChild);
-                    if (nlpDescriptionDiv.childElementCount > 5) {
+                    if (nlpDescriptionDiv.childElementCount > 50) {
                         nlpDescriptionDiv.removeChild(nlpDescriptionDiv.lastChild);
                     }
                 }
@@ -307,6 +338,8 @@
         video = document.getElementById('video');
         canvas = document.getElementById('canvas');
         ctx = canvas.getContext('2d');
+        placeholderCanvas = document.getElementById('placeholder-canvas');
+        placeholderCtx = placeholderCanvas.getContext('2d');
 
         toggleCameraButton.addEventListener('click', toggleCamera);
         switchCameraButton.addEventListener('click', switchCamera);
@@ -315,6 +348,15 @@
         // Initialize buttons
         switchCameraButton.disabled = true;
         startDetectionButton.disabled = true;
+
+        // Expand functionality for log and nlpDescription
+        document.querySelectorAll('.expand-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const parentDiv = this.parentElement;
+                parentDiv.classList.toggle('expanded');
+                this.textContent = parentDiv.classList.contains('expanded') ? 'Collapse' : 'Expand';
+            });
+        });
 
         // Load OpenCV.js
         function onOpenCvReady() {
