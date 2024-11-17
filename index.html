@@ -2,53 +2,95 @@
 <html>
 <head>
   <title>Real-time Video Analysis</title>
+  <style>
+    #video {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+    }
+  </style>
 </head>
 <body>
+  <button id="startButton" style="width: 100%;">Start Camera</button>
+  <button id="switchCamera" style="width: 50%;">Switch Camera</button>
   <video id="video" autoplay></video>
+  <div id="description"></div>
+  <canvas id="canvas"></canvas>
+
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <script src="https://docs.opencv.org/4.x/opencv.js"></script>
   <script>
-    cv.onRuntimeInitialized = () => {
-      console.log('OpenCV.js initialized.');
+    const startButton = document.getElementById('startButton');
+    const switchCameraButton = document.getElementById('switchCamera');
+    const video = document.getElementById('video');
+    const description = document.getElementById('description');
+    const canvas = document.getElementById('canvas');
 
-      const videoCapture = new cv.VideoCapture(video);
-      const frame = new cv.Mat();
+    let facingMode = 'user'; // Default to front camera
+    let stream = null;
 
-      cocoSsd.load().then(model => {
-        console.log('Model loaded successfully.');
+    startButton.addEventListener('click', () => {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } })
+        .then(newStream => {
+          if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+          }
+          stream = newStream;
+          video.srcObject = stream;
+          video.play();
 
-        function processFrame() {
-          videoCapture.read(frame);
-          console.log('Frame captured.');
+          cv.onRuntimeInitialized = () => {
+            const videoCapture = new cv.VideoCapture(video);
+            const frame = new cv.Mat();
 
-          // Convert the frame to a tensor
-          const tensor = tf.browser.fromPixels(frame);
-          const resized = tf.image.resizeBilinear(tensor, [300, 300]);
-          const expanded = resized.expandDims(0);
-          console.log('Frame converted to tensor.');
+            cocoSsd.load().then(model => {
+              function processFrame() {
+                videoCapture.read(frame);
 
-          // Run the model on the tensor
-          model.detect(expanded).then(predictions => {
-            console.log('Object detection complete.');
+                // Convert the frame to a tensor
+                const tensor = tf.browser.fromPixels(frame);
+                const resized = tf.image.resizeBilinear(tensor, [300, 300]);
+                const expanded = resized.expandDims(0);
 
-            // Draw bounding boxes and labels on the frame using OpenCV.js
-            // ... (Your code to draw on the frame)
+                // Run the model on the tensor
+                model.detect(expanded).then(predictions => {
+                  // Draw bounding boxes and labels on the frame using OpenCV.js
+                  for (const prediction of predictions) {
+                    const x = prediction.bbox[0];
+                    const y = prediction.bbox[1];
+                    const width = prediction.bbox[2];
+                    const height = prediction.bbox[3];
 
-            // Generate description
-            const descriptionText = generateDescription(predictions);
-            console.log('Description generated:', descriptionText);
-          });
+                    const rect = new cv.Rect(x, y, width, height);
+                    cv.rectangle(frame, rect, new cv.Scalar(0, 255, 0, 255), 2);
+                    cv.putText(frame, prediction.class, new cv.Point(x, y - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, new cv.Scalar(0, 255, 0, 255));
+                  }
 
-          requestAnimationFrame(processFrame);
-        }
+                  cv.imshow('canvas', frame);
 
-        requestAnimationFrame(processFrame);
-      });
-    };
+                  // Generate description
+                  const descriptionText = generateDescription(predictions);
+                  description.textContent = descriptionText;
+                });
+
+                requestAnimationFrame(processFrame);
+              }
+
+              requestAnimationFrame(processFrame);
+            });
+          };
+        })
+        .catch(error => {
+          console.error('Error accessing camera:', error);
+        });
+    });
+
+    switchCameraButton.addEventListener('click', () => {
+      facingMode = facingMode === 'user' ? 'environment' : 'user';
+      startButton.click(); // Trigger camera restart with new facing mode
+    });
 
     function generateDescription(predictions) {
-      console.log('Generating description...');
       let descriptionText = "Detected objects: ";
       predictions.forEach(prediction => {
         descriptionText += prediction.class + ", ";
