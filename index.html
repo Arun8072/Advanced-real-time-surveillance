@@ -7,19 +7,26 @@
       width: 100%;
       aspect-ratio: 16 / 9;
     }
+    #description {
+      border: 1px solid gray;
+      padding: 10px;
+    }
   </style>
 </head>
 <body>
   <button id="startButton" style="width: 100%;">Start Camera</button>
   <button id="switchCamera" style="width: 50%;">Switch Camera</button>
   <video id="video" autoplay></video>
-  <div id="description"></div>
+  <div id="description">Detected Objects:</div>
   <canvas id="canvas"></canvas>
+  <button id="monitorButton">Monitor</button>
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <script src="https://docs.opencv.org/4.x/opencv.js"></script>
   <script>
+
+
     const startButton = document.getElementById('startButton');
     const switchCameraButton = document.getElementById('switchCamera');
     const video = document.getElementById('video');
@@ -111,7 +118,25 @@
   });
   return descriptionText;
     }
+// ... (rest of your JavaScript code)
 
+const monitorButton = document.getElementById('monitorButton');
+let isMonitoring = false;
+
+monitorButton.addEventListener('click', () => {
+  if (!isMonitoring) {
+    isMonitoring = true;
+    monitorButton.textContent = 'Stop Monitoring';
+    // Start the video analysis process (e.g., call the processFrame function)
+    processFrame();
+  } else {
+    isMonitoring = false;
+    monitorButton.textContent = 'Monitor';
+    // Stop the video analysis process (e.g., clear the canvas)
+    cv.imshow('canvas', new cv.Mat());
+  }
+});
+    
   </script>
   </body>
   </html>
