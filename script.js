@@ -5,6 +5,8 @@ const description = document.getElementById('description');
 
 let facingMode = 'user'; // Default to front camera
 let stream = null;
+let src = null;
+let frame = null;
 
 startButton.addEventListener('click', () => {
   console.log('Starting camera...');
@@ -19,56 +21,45 @@ startButton.addEventListener('click', () => {
       video.srcObject = stream;
       video.play();
 
-      console.log('Loading COCO-SSD model...');
-      cocoSsd.load().then(model => {
-        console.log('Model loaded successfully.');
-        const src = new cv.VideoCapture(video);
-        const frame = new cv.Mat();
+      console.log('Initializing OpenCV.js...');
+      cv.onRuntimeInitialized = () => {
+        console.log('OpenCV.js initialized.');
+        src = new cv.VideoCapture(video);
+        frame = new cv.Mat();
 
-        setInterval(() => {
-          src.read(frame);
-          console.log('Frame captured.');
+        console.log('Loading COCO-SSD model...');
+        cocoSsd.load().then(model => {
+          console.log('Model loaded successfully.');
 
-          // Convert the frame to a tensor
-          const tensor = tf.browser.fromPixels(frame);
-          const resized = tf.image.resizeBilinear(tensor, [300, 300]);
-          const expanded = resized.expandDims(0);
-          console.log('Frame converted to tensor.');
+          setInterval(() => {
+            src.read(frame);
+            console.log('Frame captured.');
 
-          // Run the model on the tensor
-          model.detect(expanded).then(predictions => {
-            console.log('Object detection complete.');
-            // Draw bounding boxes and labels on the frame using OpenCV.js
-            // ...
+            // Convert the frame to a tensor
+            const tensor = tf.browser.fromPixels(frame);
+            const resized = tf.image.resizeBilinear(tensor, [300, 300]);
+            const expanded = resized.expandDims(0);
+            console.log('Frame converted to tensor.');
 
-            // Generate description
-            const descriptionText = generateDescription(predictions);
-            description.textContent = descriptionText;
-            console.log('Description generated:', descriptionText);
-          });
-        }, 100);
-      });
+            // Run the model on the tensor
+            model.detect(expanded).then(predictions => {
+              console.log('Object detection complete.');
 
-      startButton.disabled = true;
+              // Draw bounding boxes and labels on the frame using OpenCV.js
+              // ... (Your code to draw on the frame)
+
+              // Generate description
+              const descriptionText = generateDescription(predictions);
+              description.textContent = descriptionText;
+              console.log('Description generated:', descriptionText);
+            });
+          }, 100);
+        });
+      };
     })
     .catch(error => {
       console.error('Error accessing camera:', error);
     });
 });
 
-switchCameraButton.addEventListener('click', () => {
-  console.log('Switching camera...');
-  facingMode = facingMode === 'user' ? 'environment' : 'user';
-  startButton.click(); // Trigger camera restart with new facing mode
-});
-
-function generateDescription(predictions) {
-  // Implement your logic to generate a textual description based on the predictions
-  // ...
-  console.log('Generating description...');
-  let descriptionText = "Detected objects: ";
-  predictions.forEach(prediction => {
-    descriptionText += prediction.class + ", ";
-  });
-  return descriptionText;
-}
+// ... (Rest of the code)
