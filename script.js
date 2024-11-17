@@ -23,22 +23,14 @@ startButton.addEventListener('click', () => {
       cv.onRuntimeInitialized = () => {
         console.log('OpenCV.js initialized.');
 
-        // Create a VideoCapture object
         const videoCapture = new cv.VideoCapture(video);
-
-        // Create a Mat object to hold the frame
         const frame = new cv.Mat();
 
         console.log('Loading COCO-SSD model...');
         cocoSsd.load().then(model => {
           console.log('Model loaded successfully.');
 
-function processFrame() {
-    src.read(frame);
-    console.log('Frame captured.');
-
-    // ... (rest of your frame processing and model inference code)
-setInterval(() => {
+          function processFrame() {
             videoCapture.read(frame);
             console.log('Frame captured.');
 
@@ -60,14 +52,11 @@ setInterval(() => {
               description.textContent = descriptionText;
               console.log('Description generated:', descriptionText);
             });
-          }, 100);
-    requestAnimationFrame(processFrame);
-  }
 
-  requestAnimationFrame(processFrame);
-});
+            requestAnimationFrame(processFrame);
+          }
 
-          
+          requestAnimationFrame(processFrame);
         });
       };
     })
@@ -76,4 +65,17 @@ setInterval(() => {
     });
 });
 
+switchCameraButton.addEventListener('click', () => {
+  console.log('Switching camera...');
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  startButton.click(); // Trigger camera restart with new facing mode
+});
 
+function generateDescription(predictions) {
+  console.log('Generating description...');
+  let descriptionText = "Detected objects: ";
+  predictions.forEach(prediction => {
+    descriptionText += prediction.class + ", ";
+  });
+  return descriptionText;
+}
