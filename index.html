@@ -1,161 +1,230 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Real-time Video Analysis</title>
-  <style>
-    #video {
-      width: 100%; /* Responsive width */
-      max-width: 640px; /* Optional max width */
-      aspect-ratio: 16 / 9;
-    }
-    #description {
-      border: 1px solid gray;
-      padding: 10px;
-      margin-top: 10px;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      line-height: 1.5;
-    }
-    #canvas {
-      display: none; /* For debugging, set to block if needed */
-    }
-  </style>
-</head>
-<body>
-  <button id="startButton" style="width: 100%;">Start Camera</button>
-  <button id="switchCamera" style="width: 48%; margin-right: 4%;">Switch Camera</button>
-  <button id="monitorButton" style="width: 48%;">Monitor</button>
-  <video id="video" autoplay muted></video>
-  <div id="description">Detected Objects:</div>
-  <canvas id="canvas"></canvas>
-
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-  <script src="https://docs.opencv.org/4.x/opencv.js"></script>
-  <script>
-    const startButton = document.getElementById('startButton');
-    const switchCameraButton = document.getElementById('switchCamera');
-    const monitorButton = document.getElementById('monitorButton');
-    const video = document.getElementById('video');
-    const description = document.getElementById('description');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-
-    let videoWidth, videoHeight; // Dynamic video dimensions
-    let facingMode = 'user'; // Default to front camera
-    let stream = null;
-    let model = null;
-
-    console.log("Initializing script...");
-
-    // Load TensorFlow model
-    cocoSsd.load()
-      .then(loadedModel => {
-        model = loadedModel;
-        console.log("COCO-SSD model loaded successfully.");
-      })
-      .catch(err => console.error("Error loading COCO-SSD model:", err));
-
-    startButton.addEventListener('click', () => {
-      console.log('Starting camera...');
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } })
-        .then(newStream => {
-          if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-          }
-          stream = newStream;
-          video.srcObject = stream;
-          video.play();
-
-          video.addEventListener('loadeddata', () => {
-            // Get the original video size after metadata is loaded
-            videoWidth = video.videoWidth;
-            videoHeight = video.videoHeight;
-
-            console.log(`Original video size: ${videoWidth}x${videoHeight}`);
-
-            canvas.width = videoWidth;
-            canvas.height = videoHeight;
-
-            cv.onRuntimeInitialized = () => {
-              console.log("OpenCV.js initialized successfully.");
-            };
-          });
-        })
-        .catch(error => console.error("Error accessing camera:", error));
-    });
-
-    switchCameraButton.addEventListener('click', () => {
-      console.log("Switching camera...");
-      facingMode = facingMode === "user" ? "environment" : "user";
-      startButton.click();
-    });
-
-    monitorButton.addEventListener('click', () => {
-      console.log("Monitoring started...");
-      if (!model) {
-        console.error("COCO-SSD model not loaded yet.");
-        return;
-      }
-      if (!video.srcObject) {
-        console.error("Video stream not started yet.");
-        return;
-      }
-      monitorVideo();
-    });
-
-    function monitorVideo() {
-      console.log("MonitorVideo function started...");
-      if (!videoWidth || !videoHeight) {
-        console.error("Video dimensions unavailable.");
-        return;
-      }
-
-      const cap = new cv.VideoCapture(video);
-
-      function analyzeFrame() {
-        try {
-          const frame = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4); // Dynamically sized frame
-          console.log(`Analyzing frame (${videoWidth}x${videoHeight})...`);
-          cap.read(frame); // Read current video frame
-          console.log("Frame captured.");
-
-          // Convert frame to TensorFlow tensor
-          const tensor = tf.browser.fromPixels(frame);
-          console.log("Frame converted to TensorFlow tensor.");
-
-          model.detect(tensor).then(predictions => {
-            console.log("Object detection complete:", predictions);
-
-            // Update description
-            description.textContent = predictions.map(p => `${p.class} (${p.score.toFixed(2)})`).join(", ") || "No objects detected.";
-
-            // Draw bounding boxes on the frame
-            predictions.forEach(prediction => {
-              const [x, y, width, height] = prediction.bbox;
-              cv.rectangle(frame, new cv.Point(x, y), new cv.Point(x + width, y + height), [0, 255, 0, 255], 2);
-              cv.putText(frame, prediction.class, new cv.Point(x, y - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 0, 0, 255], 2);
-            });
-
-            cv.imshow(canvas, frame);
-            console.log("Bounding boxes drawn on frame.");
-          }).catch(err => {
-            console.error("Error during object detection:", err);
-          });
-
-          tensor.dispose(); // Release memory
-          frame.delete(); // Clean up OpenCV matrix
-        } catch (err) {
-          console.error("Error during frame analysis:", err);
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Object Detection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
         }
 
-        // Process next frame
-        requestAnimationFrame(analyzeFrame);
-      }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
 
-      // Start processing frames
-      requestAnimationFrame(analyzeFrame);
-    }
-  </script>
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto;
+        }
+
+        #video, #canvas {
+            width: 100%;
+            height: auto;
+            max-height: 480px;
+            display: block;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #detectionResults, #log {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        #log {
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Real-time Object Detection</h1>
+        <div class="video-container">
+            <video id="video" playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+        <div class="controls">
+            <button id="startCamera">Start Camera</button>
+            <button id="switchCamera">Switch Camera</button>
+            <button id="startDetection">Start Detection</button>
+        </div>
+        <div id="detectionResults"></div>
+        <div id="log"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
+    <script>
+        let video, canvas, ctx, model, stream;
+        let isDetecting = false;
+        let currentCameraFacingMode = 'environment';
+
+        const startCameraButton = document.getElementById('startCamera');
+        const switchCameraButton = document.getElementById('switchCamera');
+        const startDetectionButton = document.getElementById('startDetection');
+        const detectionResultsDiv = document.getElementById('detectionResults');
+        const logDiv = document.getElementById('log');
+
+        function log(message) {
+            console.log(message);
+            logDiv.innerHTML += message + '\n';
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        async function loadModel() {
+            log('Loading COCO-SSD model...');
+            model = await cocoSsd.load();
+            log('Model loaded successfully');
+        }
+
+        async function startCamera() {
+            try {
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+
+                const constraints = {
+                    video: {
+                        facingMode: currentCameraFacingMode,
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                };
+
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                await video.play();
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                log(`Video dimensions: ${video.videoWidth}x${video.videoHeight}`);
+
+                startCameraButton.disabled = true;
+                switchCameraButton.disabled = false;
+                startDetectionButton.disabled = false;
+            } catch (error) {
+                log('Error starting camera: ' + error.message);
+            }
+        }
+
+        function switchCamera() {
+            currentCameraFacingMode = currentCameraFacingMode === 'environment' ? 'user' : 'environment';
+            startCamera();
+        }
+
+        async function startDetection() {
+            if (!model) {
+                await loadModel();
+            }
+
+            isDetecting = !isDetecting;
+            startDetectionButton.textContent = isDetecting ? 'Stop Detection' : 'Start Detection';
+
+            if (isDetecting) {
+                detectObjects();
+            }
+        }
+
+        async function detectObjects() {
+            if (!isDetecting) return;
+
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const mat = cv.matFromImageData(imageData);
+
+            try {
+                const predictions = await model.detect(video);
+                log(`Detected ${predictions.length} objects`);
+
+                let detectionText = '';
+                predictions.forEach((prediction, index) => {
+                    const [x, y, width, height] = prediction.bbox;
+                    const color = [255, 0, 0, 255]; // Red color for bounding box
+
+                    const point1 = new cv.Point(x, y);
+                    const point2 = new cv.Point(x + width, y + height);
+                    cv.rectangle(mat, point1, point2, color, 2);
+
+                    const text = `${prediction.class} (${Math.round(prediction.score * 100)}%)`;
+                    const org = new cv.Point(x, y - 5);
+                    cv.putText(mat, text, org, cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
+
+                    detectionText += `${index + 1}. ${text} at (${Math.round(x)}, ${Math.round(y)})\n`;
+                });
+
+                cv.imshow(canvas, mat);
+                detectionResultsDiv.textContent = detectionText;
+            } catch (error) {
+                log('Error during object detection: ' + error.message);
+            } finally {
+                mat.delete();
+            }
+
+            requestAnimationFrame(detectObjects);
+        }
+
+        video = document.getElementById('video');
+        canvas = document.getElementById('canvas');
+        ctx = canvas.getContext('2d');
+
+        startCameraButton.addEventListener('click', startCamera);
+        switchCameraButton.addEventListener('click', switchCamera);
+        startDetectionButton.addEventListener('click', startDetection);
+
+        // Initialize buttons
+        switchCameraButton.disabled = true;
+        startDetectionButton.disabled = true;
+
+        // Load OpenCV.js
+        function onOpenCvReady() {
+            log('OpenCV.js is ready');
+            loadModel();
+        }
+    </script>
 </body>
 </html>
