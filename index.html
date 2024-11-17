@@ -3,11 +3,10 @@
 <head>
   <title>Real-time Video Analysis</title>
   <style>
-    /* Enforce consistent size across elements */
     #video {
-      width: 640px; /* Fixed width */
-      height: 360px; /* Fixed height to maintain 16:9 aspect ratio */
-      border: 1px solid black;
+      width: 100%; /* Responsive width */
+      max-width: 640px; /* Optional max width */
+      aspect-ratio: 16 / 9;
     }
     #description {
       border: 1px solid gray;
@@ -42,8 +41,7 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
 
-    const VIDEO_WIDTH = 640;
-    const VIDEO_HEIGHT = 360;
+    let videoWidth, videoHeight; // Dynamic video dimensions
     let facingMode = 'user'; // Default to front camera
     let stream = null;
     let model = null;
@@ -60,7 +58,7 @@
 
     startButton.addEventListener('click', () => {
       console.log('Starting camera...');
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode, width: VIDEO_WIDTH, height: VIDEO_HEIGHT } })
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } })
         .then(newStream => {
           if (stream) {
             stream.getTracks().forEach(track => track.stop());
@@ -70,9 +68,14 @@
           video.play();
 
           video.addEventListener('loadeddata', () => {
-            console.log("Video stream loaded.");
-            canvas.width = VIDEO_WIDTH;
-            canvas.height = VIDEO_HEIGHT;
+            // Get the original video size after metadata is loaded
+            videoWidth = video.videoWidth;
+            videoHeight = video.videoHeight;
+
+            console.log(`Original video size: ${videoWidth}x${videoHeight}`);
+
+            canvas.width = videoWidth;
+            canvas.height = videoHeight;
 
             cv.onRuntimeInitialized = () => {
               console.log("OpenCV.js initialized successfully.");
@@ -103,13 +106,17 @@
 
     function monitorVideo() {
       console.log("MonitorVideo function started...");
+      if (!videoWidth || !videoHeight) {
+        console.error("Video dimensions unavailable.");
+        return;
+      }
 
       const cap = new cv.VideoCapture(video);
 
       function analyzeFrame() {
         try {
-          const frame = new cv.Mat(VIDEO_HEIGHT, VIDEO_WIDTH, cv.CV_8UC4);
-          console.log(`Analyzing frame (${VIDEO_WIDTH}x${VIDEO_HEIGHT})...`);
+          const frame = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4); // Dynamically sized frame
+          console.log(`Analyzing frame (${videoWidth}x${videoHeight})...`);
           cap.read(frame); // Read current video frame
           console.log("Frame captured.");
 
