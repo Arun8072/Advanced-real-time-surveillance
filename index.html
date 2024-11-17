@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Real-time Video Analysis with NLP</title>
+  <title>Real-time Video Analysis</title>
   <style>
     #video {
       width: 100%;
@@ -25,13 +25,12 @@
   <button id="switchCamera" style="width: 48%; margin-right: 4%;">Switch Camera</button>
   <button id="monitorButton" style="width: 48%;">Monitor</button>
   <video id="video" autoplay muted></video>
-  <div id="description">Detected Objects and Description:</div>
+  <div id="description">Detected Objects:</div>
   <canvas id="canvas"></canvas>
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <script src="https://docs.opencv.org/4.x/opencv.js"></script>
-  <script src="https://unpkg.com/compromise@latest/builds/compromise.min.js"></script>
   <script>
     const startButton = document.getElementById('startButton');
     const switchCameraButton = document.getElementById('switchCamera');
@@ -39,39 +38,34 @@
     const video = document.getElementById('video');
     const description = document.getElementById('description');
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
 
     let facingMode = 'user'; // Default to front camera
     let stream = null;
     let model = null;
 
-    console.log("Script loaded. Waiting for user actions...");
+    console.log("Initializing script...");
 
-    // Load the COCO-SSD model
+    // Load TensorFlow model
     cocoSsd.load()
       .then(loadedModel => {
         model = loadedModel;
         console.log("COCO-SSD model loaded successfully.");
       })
-      .catch(err => {
-        console.error("Error loading COCO-SSD model:", err);
-      });
+      .catch(err => console.error("Error loading COCO-SSD model:", err));
 
     startButton.addEventListener('click', () => {
-      console.log('Start button clicked. Attempting to access camera...');
+      console.log('Starting camera...');
       navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } })
         .then(newStream => {
-          console.log("Camera access granted. Setting up video stream.");
           if (stream) {
             stream.getTracks().forEach(track => track.stop());
-            console.log("Stopped previous video stream.");
           }
           stream = newStream;
           video.srcObject = stream;
           video.play();
 
           video.addEventListener('loadeddata', () => {
-            console.log("Video stream loaded successfully.");
+            console.log("Video stream loaded. Video dimensions:", video.videoWidth, "x", video.videoHeight);
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
 
@@ -90,7 +84,7 @@
     });
 
     monitorButton.addEventListener('click', () => {
-      console.log("Monitor button clicked. Checking readiness...");
+      console.log("Monitoring started...");
       if (!model) {
         console.error("COCO-SSD model not loaded yet.");
         return;
@@ -99,54 +93,42 @@
         console.error("Video stream not started yet.");
         return;
       }
-      console.log("Starting monitoring...");
       monitorVideo();
     });
 
     function monitorVideo() {
-      console.log("MonitorVideo function started. Preparing OpenCV capture...");
+      console.log("MonitorVideo function started...");
 
-      const videoWidth = video.videoWidth;
-      const videoHeight = video.videoHeight;
-
-      if (!videoWidth || !videoHeight) {
-        console.error("Video dimensions are not available.");
-        return;
-      }
-
-      // Initialize the OpenCV VideoCapture and matrix
       const cap = new cv.VideoCapture(video);
-      let frame = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4);
-
-      console.log(`Initialized OpenCV VideoCapture with video dimensions: ${videoWidth}x${videoHeight}`);
 
       function analyzeFrame() {
-        console.log("Analyzing frame...");
         try {
-          // Read video frame into OpenCV matrix
-          cap.read(frame);
-
-          // Check if frame dimensions match video dimensions
-          if (frame.cols !== videoWidth || frame.rows !== videoHeight) {
-            console.warn("Mismatch in frame size. Resizing frame...");
-            frame = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4);
+          // Dynamically create the matrix to ensure matching dimensions
+          const videoWidth = video.videoWidth;
+          const videoHeight = video.videoHeight;
+          if (!videoWidth || !videoHeight) {
+            console.error("Video dimensions unavailable.");
+            requestAnimationFrame(analyzeFrame);
+            return;
           }
 
-          console.log("Frame captured successfully.");
-          cv.imshow(canvas, frame);
-          console.log("Frame displayed on canvas.");
+          // Recreate frame matrix with correct dimensions
+          const frame = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4);
+
+          console.log(`Analyzing frame (${videoWidth}x${videoHeight})...`);
+          cap.read(frame); // Read current video frame
+          console.log("Frame captured.");
 
           // Convert frame to TensorFlow tensor
-          const tensor = tf.browser.fromPixels(canvas);
-          console.log("Frame converted to tensor.");
+          const tensor = tf.browser.fromPixels(frame);
+          console.log("Frame converted to TensorFlow tensor.");
 
+          // Perform object detection
           model.detect(tensor).then(predictions => {
-            console.log("Object detection completed. Predictions received:", predictions);
+            console.log("Object detection complete:", predictions);
 
-            // Generate NLP description
-            const descriptionText = generateNLPDescription(predictions);
-            description.textContent = descriptionText;
-            console.log("Description updated:", descriptionText);
+            // Update description
+            description.textContent = predictions.map(p => `${p.class} (${p.score.toFixed(2)})`).join(", ") || "No objects detected.";
 
             // Draw bounding boxes on the frame
             predictions.forEach(prediction => {
@@ -154,40 +136,25 @@
               cv.rectangle(frame, new cv.Point(x, y), new cv.Point(x + width, y + height), [0, 255, 0, 255], 2);
               cv.putText(frame, prediction.class, new cv.Point(x, y - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 0, 0, 255], 2);
             });
+
             cv.imshow(canvas, frame);
-            console.log("Bounding boxes drawn.");
+            console.log("Bounding boxes drawn on frame.");
           }).catch(err => {
             console.error("Error during object detection:", err);
           });
 
-          tensor.dispose(); // Dispose tensor to save memory
+          tensor.dispose(); // Release memory
+          frame.delete(); // Clean up OpenCV matrix
         } catch (err) {
           console.error("Error during frame analysis:", err);
         }
 
-        // Process the next frame
+        // Process next frame
         requestAnimationFrame(analyzeFrame);
       }
 
-      // Start analyzing frames
+      // Start processing frames
       requestAnimationFrame(analyzeFrame);
-    }
-
-    function generateNLPDescription(predictions) {
-      console.log("Generating NLP description...");
-      if (predictions.length === 0) {
-        return "No objects detected in the current frame.";
-      }
-
-      const classes = predictions.map(prediction => prediction.class);
-      let descriptionText = `The camera sees ${classes.length} objects: ${classes.join(", ")}.`;
-
-      // Process text with Compromise.js for variations
-      let nlp = nlp(descriptionText);
-      const enhancedDescription = nlp.sentences().toNegative().out();
-
-      console.log("NLP description generated.");
-      return enhancedDescription || descriptionText;
     }
   </script>
 </body>
