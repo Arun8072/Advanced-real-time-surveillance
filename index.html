@@ -27,19 +27,17 @@
             width: 100%;
             max-width: 640px;
             margin: 0 auto;
+            aspect-ratio: 4 / 3;
+            background-color: #000;
         }
 
         #video, #canvas, #placeholder-canvas {
-            width: 100%;
-            height: auto;
-            max-height: 480px;
-            display: block;
-        }
-
-        #canvas, #placeholder-canvas {
             position: absolute;
             top: 0;
             left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
         }
 
         .controls {
@@ -78,11 +76,12 @@
         }
 
         #log, #nlpDescription {
+            position: relative;
             white-space: pre-wrap;
             font-family: monospace;
             font-size: 14px;
             overflow-y: auto;
-            position: relative;
+            padding-bottom: 30px; /* Space for the expand button */
         }
 
         #log {
@@ -95,13 +94,15 @@
 
         .expand-btn {
             position: absolute;
-            bottom: 0;
-            right: 0;
+            bottom: 5px;
+            right: 5px;
             background-color: rgba(0, 0, 0, 0.5);
             color: white;
             border: none;
             padding: 5px 10px;
             cursor: pointer;
+            font-size: 12px;
+            border-radius: 3px;
         }
 
         .expanded {
@@ -170,13 +171,14 @@
             const disappearedObjects = prevObjects.filter(prevObj => !objects.some(obj => obj.class === prevObj.class));
 
             if (newObjects.length > 0) {
-                description += `Detected new ${newObjects.map(obj => obj.class).join(', ')}.`;
+                description += `New objects detected: ${newObjects.map(obj => obj.class).join(', ')}. `;
             }
 
             if (disappearedObjects.length > 0) {
-                description += ` ${disappearedObjects.map(obj => obj.class).join(', ')} disappeared.`;
+                description += `Objects no longer visible: ${disappearedObjects.map(obj => obj.class).join(', ')}. `;
             }
 
+            const movingObjects = [];
             objects.forEach(obj => {
                 const prevObj = prevObjects.find(pObj => pObj.class === obj.class);
                 if (prevObj) {
@@ -185,10 +187,41 @@
                     if (Math.abs(xDiff) > 10 || Math.abs(yDiff) > 10) {
                         const xDirection = xDiff > 0 ? 'right' : 'left';
                         const yDirection = yDiff > 0 ? 'down' : 'up';
-                        description += ` ${obj.class} moving ${xDirection} and ${yDirection}.`;
+                        movingObjects.push(`${obj.class} moving ${xDirection} and ${yDirection}`);
                     }
                 }
             });
+
+            if (movingObjects.length > 0) {
+                description += `Movement detected: ${movingObjects.join(', ')}. `;
+            }
+
+            // Add more detailed description
+            const objectCounts = objects.reduce((acc, obj) => {
+                acc[obj.class] = (acc[obj.class] || 0) + 1;
+                return acc;
+            }, {});
+
+            const objectDescriptions = Object.entries(objectCounts).map(([cls, count]) => {
+                return `${count} ${cls}${count > 1 ? 's' : ''}`;
+            });
+
+            if (objectDescriptions.length > 0) {
+                description += `Current scene: ${objectDescriptions.join(', ')}. `;
+            }
+
+            // Describe spatial relationships
+            if (objects.length > 1) {
+                const centerObject = objects[0];
+                const otherObjects = objects.slice(1);
+                otherObjects.forEach(obj => {
+                    const xDiff = obj.bbox[0] - centerObject.bbox[0];
+                    const yDiff = obj.bbox[1] - centerObject.bbox[1];
+                    const xDirection = xDiff > 0 ? 'right' : 'left';
+                    const yDirection = yDiff > 0 ? 'below' : 'above';
+                    description += `${obj.class} is to the ${xDirection} and ${yDirection} of ${centerObject.class}. `;
+                });
+            }
 
             prevObjects = objects;
             return description.trim();
@@ -235,6 +268,7 @@
                 toggleCameraButton.textContent = 'Stop Camera';
                 switchCameraButton.disabled = false;
                 startDetectionButton.disabled = false;
+                video.style.display = 'block';
                 canvas.style.display = 'block';
                 placeholderCanvas.style.display = 'none';
             } catch (error) {
@@ -250,6 +284,7 @@
                 toggleCameraButton.textContent = 'Start Camera';
                 switchCameraButton.disabled = true;
                 startDetectionButton.disabled = true;
+                video.style.display = 'none';
                 canvas.style.display = 'none';
                 placeholderCanvas.style.display = 'block';
                 placeholderCtx.drawImage(canvas, 0, 0);
