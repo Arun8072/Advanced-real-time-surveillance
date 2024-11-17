@@ -104,52 +104,72 @@
     });
 
     function monitorVideo() {
-      console.log("MonitorVideo function started. Preparing OpenCV capture...");
-      const cap = new cv.VideoCapture(video);
-      const frame = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+  console.log("MonitorVideo function started. Preparing OpenCV capture...");
 
-      function analyzeFrame() {
-        console.log("Analyzing frame...");
-        try {
-          cap.read(frame);
-          console.log("Frame captured successfully.");
-          cv.imshow(canvas, frame);
-          console.log("Frame displayed on canvas.");
+  // Ensure the video stream dimensions are set
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
 
-          // Convert frame to TensorFlow tensor
-          const tensor = tf.browser.fromPixels(canvas);
-          console.log("Frame converted to tensor.");
+  if (!videoWidth || !videoHeight) {
+    console.error("Video dimensions are not available.");
+    return;
+  }
 
-          model.detect(tensor).then(predictions => {
-            console.log("Object detection completed. Predictions received:", predictions);
+  // Initialize the OpenCV VideoCapture and matrix with correct dimensions
+  const cap = new cv.VideoCapture(video);
+  const frame = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4); // Ensure matching dimensions
 
-            // Generate NLP description
-            const descriptionText = generateNLPDescription(predictions);
-            description.textContent = descriptionText;
-            console.log("Description updated:", descriptionText);
+  console.log(`Initialized OpenCV VideoCapture with video dimensions: ${videoWidth}x${videoHeight}`);
 
-            // Draw bounding boxes and labels
-            predictions.forEach(prediction => {
-              const [x, y, width, height] = prediction.bbox;
-              cv.rectangle(frame, new cv.Point(x, y), new cv.Point(x + width, y + height), [0, 255, 0, 255], 2);
-              cv.putText(frame, prediction.class, new cv.Point(x, y - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 0, 0, 255], 2);
-            });
-            cv.imshow(canvas, frame);
-            console.log("Bounding boxes drawn.");
-          }).catch(err => {
-            console.error("Error during object detection:", err);
-          });
+  function analyzeFrame() {
+    console.log("Analyzing frame...");
 
-          tensor.dispose(); // Dispose tensor to save memory
-        } catch (err) {
-          console.error("Error during frame analysis:", err);
-        }
+    try {
+      cap.read(frame); // Read the video frame into the matrix
+      console.log("Frame captured successfully.");
+      
+      // Display the frame on the canvas for debugging
+      cv.imshow(canvas, frame);
+      console.log("Frame displayed on canvas.");
 
-        requestAnimationFrame(analyzeFrame);
-      }
+      // Convert the frame to TensorFlow tensor
+      const tensor = tf.browser.fromPixels(canvas);
+      console.log("Frame converted to tensor.");
 
-      requestAnimationFrame(analyzeFrame);
+      // Run object detection
+      model.detect(tensor).then(predictions => {
+        console.log("Object detection completed. Predictions received:", predictions);
+
+        // Generate NLP description
+        const descriptionText = generateNLPDescription(predictions);
+        description.textContent = descriptionText;
+        console.log("Description updated:", descriptionText);
+
+        // Draw bounding boxes on the frame
+        predictions.forEach(prediction => {
+          const [x, y, width, height] = prediction.bbox;
+          cv.rectangle(frame, new cv.Point(x, y), new cv.Point(x + width, y + height), [0, 255, 0, 255], 2);
+          cv.putText(frame, prediction.class, new cv.Point(x, y - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 0, 0, 255], 2);
+        });
+        cv.imshow(canvas, frame);
+        console.log("Bounding boxes drawn.");
+      }).catch(err => {
+        console.error("Error during object detection:", err);
+      });
+
+      tensor.dispose(); // Dispose tensor to save memory
+    } catch (err) {
+      console.error("Error during frame analysis:", err);
     }
+
+    // Process the next frame
+    requestAnimationFrame(analyzeFrame);
+  }
+
+  // Start analyzing frames
+  requestAnimationFrame(analyzeFrame);
+}
+
 
     function generateNLPDescription(predictions) {
       console.log("Generating NLP description...");
@@ -168,6 +188,12 @@
       console.log("NLP description generated.");
       return enhancedDescription || descriptionText;
     }
+
+    video.addEventListener('loadeddata', () => {
+  console.log("Video stream loaded. Starting monitoring...");
+  monitorButton.click();
+});
+
   </script>
 </body>
 </html>
