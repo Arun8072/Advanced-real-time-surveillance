@@ -63,12 +63,18 @@
             background-color: #45a049;
         }
 
-        #detectionResults, #log, #nlpDescription {
+        #total_obj, #detectionResults, #log, #nlpDescription {
             margin-top: 20px;
             padding: 10px;
             background-color: white;
             border-radius: 5px;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        #total_obj {
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
         }
 
         #log {
@@ -92,14 +98,14 @@
             <canvas id="canvas"></canvas>
         </div>
         <div class="controls">
-            <button id="startCamera">Start Camera</button>
+            <button id="toggleCamera">Start Camera</button>
             <button id="switchCamera">Switch Camera</button>
             <button id="startDetection">Start Detection</button>
         </div>
+        <div id="total_obj">Total Detected <span id="obj_count">0</span> objects</div>
         <div id="detectionResults"></div>
         <div id="nlpDescription"></div>
         <div id="log"></div>
-        <span id="obj_count"></span>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
@@ -111,10 +117,10 @@
         let currentCameraFacingMode = 'environment';
         const objCountSpan = document.getElementById('obj_count');
         const nlpDescriptionDiv = document.getElementById('nlpDescription');
-        let prevObjectCount = 0;
+        let uniqueObjects = new Set();
         let prevObjects = [];
 
-        const startCameraButton = document.getElementById('startCamera');
+        const toggleCameraButton = document.getElementById('toggleCamera');
         const switchCameraButton = document.getElementById('switchCamera');
         const startDetectionButton = document.getElementById('startDetection');
         const detectionResultsDiv = document.getElementById('detectionResults');
@@ -122,13 +128,16 @@
 
         function log(message) {
             console.log(message);
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            logDiv.insertBefore(logEntry, logDiv.firstChild);
+            if (logDiv.childElementCount > 50) {
+                logDiv.removeChild(logDiv.lastChild);
+            }
         }
 
-        function updateObjectCount(count) {
-            if (count !== prevObjectCount) {
-                objCountSpan.textContent = count;
-                prevObjectCount = count;
-            }
+        function updateObjectCount() {
+            objCountSpan.textContent = uniqueObjects.size;
         }
 
         function generateNLPDescription(objects) {
@@ -161,19 +170,26 @@
             return description.trim();
         }
 
-
         async function loadModel() {
-            log('Loading COCO-SSD model...');
-            model = await cocoSsd.load();
-            log('Model loaded successfully');
+            try {
+                log('Loading COCO-SSD model...');
+                model = await cocoSsd.load();
+                log('Model loaded successfully');
+            } catch (error) {
+                log('Error loading model: ' + error.message);
+            }
+        }
+
+        async function toggleCamera() {
+            if (stream) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
         }
 
         async function startCamera() {
             try {
-                if (stream) {
-                    stream.getTracks().forEach(track => track.stop());
-                }
-
                 const constraints = {
                     video: {
                         facingMode: currentCameraFacingMode,
@@ -190,7 +206,7 @@
                 canvas.height = video.videoHeight;
                 log(`Video dimensions: ${video.videoWidth}x${video.videoHeight}`);
 
-                startCameraButton.disabled = true;
+                toggleCameraButton.textContent = 'Stop Camera';
                 switchCameraButton.disabled = false;
                 startDetectionButton.disabled = false;
             } catch (error) {
@@ -198,9 +214,25 @@
             }
         }
 
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                video.srcObject = null;
+                toggleCameraButton.textContent = 'Start Camera';
+                switchCameraButton.disabled = true;
+                startDetectionButton.disabled = true;
+                log('Camera stopped');
+            }
+        }
+
         function switchCamera() {
             currentCameraFacingMode = currentCameraFacingMode === 'environment' ? 'user' : 'environment';
-            startCamera();
+            if (stream) {
+                stopCamera();
+                startCamera();
+            }
+            log(`Switched to ${currentCameraFacingMode} camera`);
         }
 
         async function startDetection() {
@@ -212,7 +244,10 @@
             startDetectionButton.textContent = isDetecting ? 'Stop Detection' : 'Start Detection';
 
             if (isDetecting) {
+                log('Object detection started');
                 detectObjects();
+            } else {
+                log('Object detection stopped');
             }
         }
 
@@ -227,7 +262,10 @@
                 const predictions = await model.detect(video);
                 log(`Detected ${predictions.length} objects`);
 
-                updateObjectCount(predictions.length);
+                predictions.forEach(prediction => {
+                    uniqueObjects.add(prediction.class);
+                });
+                updateObjectCount();
 
                 let detectionText = '';
                 predictions.forEach((prediction, index) => {
@@ -270,7 +308,7 @@
         canvas = document.getElementById('canvas');
         ctx = canvas.getContext('2d');
 
-        startCameraButton.addEventListener('click', startCamera);
+        toggleCameraButton.addEventListener('click', toggleCamera);
         switchCameraButton.addEventListener('click', switchCamera);
         startDetectionButton.addEventListener('click', startDetection);
 
