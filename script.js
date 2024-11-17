@@ -65,3 +65,19 @@ startButton.addEventListener('click', () => {
 });
 
 // ... (Rest of the code)
+// ... (rest of your code)
+
+cocoSsd.load().then(model => {
+  console.log('Model loaded successfully.');
+
+  function processFrame() {
+    src.read(frame);
+    console.log('Frame captured.');
+
+    // ... (rest of your frame processing and model inference code)
+
+    requestAnimationFrame(processFrame);
+  }
+
+  requestAnimationFrame(processFrame);
+});
