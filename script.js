@@ -40,6 +40,11 @@ startButton.addEventListener('click', () => {
     });
 });
 
+switchCameraButton.addEventListener('click', () => {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  startButton.click(); // Trigger camera restart with new facing mode
+});
+
 function generateDescription(predictions) {
   // Implement your logic to generate a textual description based on the predictions
   // For example, you could iterate over the predictions and create a sentence like:
