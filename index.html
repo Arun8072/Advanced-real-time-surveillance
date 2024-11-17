@@ -45,29 +45,38 @@
     let stream = null;
     let model = null;
 
+    console.log("Script loaded. Waiting for user actions...");
+
     // Load the COCO-SSD model
-    cocoSsd.load().then(loadedModel => {
-      model = loadedModel;
-      console.log("COCO-SSD model loaded.");
-    }).catch(err => console.error("Error loading COCO-SSD model:", err));
+    cocoSsd.load()
+      .then(loadedModel => {
+        model = loadedModel;
+        console.log("COCO-SSD model loaded successfully.");
+      })
+      .catch(err => {
+        console.error("Error loading COCO-SSD model:", err);
+      });
 
     startButton.addEventListener('click', () => {
-      console.log('Starting camera...');
+      console.log('Start button clicked. Attempting to access camera...');
       navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } })
         .then(newStream => {
+          console.log("Camera access granted. Setting up video stream.");
           if (stream) {
             stream.getTracks().forEach(track => track.stop());
+            console.log("Stopped previous video stream.");
           }
           stream = newStream;
           video.srcObject = stream;
           video.play();
 
           video.addEventListener('loadeddata', () => {
+            console.log("Video stream loaded successfully.");
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
 
             cv.onRuntimeInitialized = () => {
-              console.log("OpenCV.js initialized.");
+              console.log("OpenCV.js initialized successfully.");
             };
           });
         })
@@ -81,40 +90,60 @@
     });
 
     monitorButton.addEventListener('click', () => {
-      console.log("Monitoring started...");
+      console.log("Monitor button clicked. Checking readiness...");
       if (!model) {
         console.error("COCO-SSD model not loaded yet.");
         return;
       }
+      if (!video.srcObject) {
+        console.error("Video stream not started yet.");
+        return;
+      }
+      console.log("Starting monitoring...");
       monitorVideo();
     });
 
     function monitorVideo() {
+      console.log("MonitorVideo function started. Preparing OpenCV capture...");
       const cap = new cv.VideoCapture(video);
       const frame = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
 
       function analyzeFrame() {
-        cap.read(frame);
-        cv.imshow(canvas, frame);
+        console.log("Analyzing frame...");
+        try {
+          cap.read(frame);
+          console.log("Frame captured successfully.");
+          cv.imshow(canvas, frame);
+          console.log("Frame displayed on canvas.");
 
-        // Convert frame to TensorFlow tensor
-        const tensor = tf.browser.fromPixels(canvas);
-        model.detect(tensor).then(predictions => {
-          tensor.dispose(); // Dispose tensor to save memory
+          // Convert frame to TensorFlow tensor
+          const tensor = tf.browser.fromPixels(canvas);
+          console.log("Frame converted to tensor.");
 
-          // Generate NLP description
-          const descriptionText = generateNLPDescription(predictions);
-          description.textContent = descriptionText;
+          model.detect(tensor).then(predictions => {
+            console.log("Object detection completed. Predictions received:", predictions);
 
-          // Draw bounding boxes and labels
-          predictions.forEach(prediction => {
-            const [x, y, width, height] = prediction.bbox;
-            cv.rectangle(frame, new cv.Point(x, y), new cv.Point(x + width, y + height), [0, 255, 0, 255], 2);
-            cv.putText(frame, prediction.class, new cv.Point(x, y - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 0, 0, 255], 2);
+            // Generate NLP description
+            const descriptionText = generateNLPDescription(predictions);
+            description.textContent = descriptionText;
+            console.log("Description updated:", descriptionText);
+
+            // Draw bounding boxes and labels
+            predictions.forEach(prediction => {
+              const [x, y, width, height] = prediction.bbox;
+              cv.rectangle(frame, new cv.Point(x, y), new cv.Point(x + width, y + height), [0, 255, 0, 255], 2);
+              cv.putText(frame, prediction.class, new cv.Point(x, y - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 0, 0, 255], 2);
+            });
+            cv.imshow(canvas, frame);
+            console.log("Bounding boxes drawn.");
+          }).catch(err => {
+            console.error("Error during object detection:", err);
           });
 
-          cv.imshow(canvas, frame);
-        });
+          tensor.dispose(); // Dispose tensor to save memory
+        } catch (err) {
+          console.error("Error during frame analysis:", err);
+        }
 
         requestAnimationFrame(analyzeFrame);
       }
@@ -123,6 +152,7 @@
     }
 
     function generateNLPDescription(predictions) {
+      console.log("Generating NLP description...");
       if (predictions.length === 0) {
         return "No objects detected in the current frame.";
       }
@@ -134,7 +164,8 @@
       // Process text with Compromise.js for variations
       let nlp = nlp(descriptionText);
       const enhancedDescription = nlp.sentences().toNegative().out();
-      
+
+      console.log("NLP description generated.");
       return enhancedDescription || descriptionText;
     }
   </script>
