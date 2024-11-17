@@ -3,9 +3,11 @@
 <head>
   <title>Real-time Video Analysis</title>
   <style>
+    /* Enforce consistent size across elements */
     #video {
-      width: 100%;
-      aspect-ratio: 16 / 9;
+      width: 640px; /* Fixed width */
+      height: 360px; /* Fixed height to maintain 16:9 aspect ratio */
+      border: 1px solid black;
     }
     #description {
       border: 1px solid gray;
@@ -38,7 +40,10 @@
     const video = document.getElementById('video');
     const description = document.getElementById('description');
     const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
 
+    const VIDEO_WIDTH = 640;
+    const VIDEO_HEIGHT = 360;
     let facingMode = 'user'; // Default to front camera
     let stream = null;
     let model = null;
@@ -55,7 +60,7 @@
 
     startButton.addEventListener('click', () => {
       console.log('Starting camera...');
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } })
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode, width: VIDEO_WIDTH, height: VIDEO_HEIGHT } })
         .then(newStream => {
           if (stream) {
             stream.getTracks().forEach(track => track.stop());
@@ -65,9 +70,9 @@
           video.play();
 
           video.addEventListener('loadeddata', () => {
-            console.log("Video stream loaded. Video dimensions:", video.videoWidth, "x", video.videoHeight);
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+            console.log("Video stream loaded.");
+            canvas.width = VIDEO_WIDTH;
+            canvas.height = VIDEO_HEIGHT;
 
             cv.onRuntimeInitialized = () => {
               console.log("OpenCV.js initialized successfully.");
@@ -103,19 +108,8 @@
 
       function analyzeFrame() {
         try {
-          // Dynamically create the matrix to ensure matching dimensions
-          const videoWidth = video.videoWidth;
-          const videoHeight = video.videoHeight;
-          if (!videoWidth || !videoHeight) {
-            console.error("Video dimensions unavailable.");
-            requestAnimationFrame(analyzeFrame);
-            return;
-          }
-
-          // Recreate frame matrix with correct dimensions
-          const frame = new cv.Mat(videoHeight, videoWidth, cv.CV_8UC4);
-
-          console.log(`Analyzing frame (${videoWidth}x${videoHeight})...`);
+          const frame = new cv.Mat(VIDEO_HEIGHT, VIDEO_WIDTH, cv.CV_8UC4);
+          console.log(`Analyzing frame (${VIDEO_WIDTH}x${VIDEO_HEIGHT})...`);
           cap.read(frame); // Read current video frame
           console.log("Frame captured.");
 
@@ -123,7 +117,6 @@
           const tensor = tf.browser.fromPixels(frame);
           console.log("Frame converted to TensorFlow tensor.");
 
-          // Perform object detection
           model.detect(tensor).then(predictions => {
             console.log("Object detection complete:", predictions);
 
