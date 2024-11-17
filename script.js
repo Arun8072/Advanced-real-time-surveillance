@@ -22,14 +22,14 @@ startButton.addEventListener('click', () => {
       console.log('Initializing OpenCV.js...');
       cv.onRuntimeInitialized = () => {
         console.log('OpenCV.js initialized.');
-
+/*
         const videoCapture = new cv.VideoCapture(video);
         const frame = new cv.Mat();
 
         console.log('Loading COCO-SSD model...');
         cocoSsd.load().then(model => {
           console.log('Model loaded successfully.');
-/*
+
           function processFrame() {
             videoCapture.read(frame);
             console.log('Frame captured.');
@@ -59,11 +59,11 @@ startButton.addEventListener('click', () => {
           requestAnimationFrame(processFrame);
         });
       };
-      */
+      
     })
     .catch(error => {
       console.error('Error accessing camera:', error);
-    });
+    }); */
 });
 
 switchCameraButton.addEventListener('click', () => {
