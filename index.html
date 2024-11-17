@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Real-time Video Analysis</title>
+  <title>Real-time Video Analysis with NLP</title>
   <style>
     #video {
       width: 100%;
@@ -10,26 +10,32 @@
     #description {
       border: 1px solid gray;
       padding: 10px;
+      margin-top: 10px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
     }
     #canvas {
-      display: none; /* Hide canvas for direct processing */
+      display: none;
     }
   </style>
 </head>
 <body>
   <button id="startButton" style="width: 100%;">Start Camera</button>
-  <button id="switchCamera" style="width: 50%;">Switch Camera</button>
+  <button id="switchCamera" style="width: 48%; margin-right: 4%;">Switch Camera</button>
+  <button id="monitorButton" style="width: 48%;">Monitor</button>
   <video id="video" autoplay muted></video>
-  <div id="description">Detected Objects:</div>
+  <div id="description">Detected Objects and Description:</div>
   <canvas id="canvas"></canvas>
-  <button id="monitorButton">Monitor</button>
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <script src="https://docs.opencv.org/4.x/opencv.js"></script>
+  <script src="https://unpkg.com/compromise@latest/builds/compromise.min.js"></script>
   <script>
     const startButton = document.getElementById('startButton');
     const switchCameraButton = document.getElementById('switchCamera');
+    const monitorButton = document.getElementById('monitorButton');
     const video = document.getElementById('video');
     const description = document.getElementById('description');
     const canvas = document.getElementById('canvas');
@@ -62,7 +68,6 @@
 
             cv.onRuntimeInitialized = () => {
               console.log("OpenCV.js initialized.");
-              processVideo();
             };
           });
         })
@@ -75,19 +80,21 @@
       startButton.click();
     });
 
-    function processVideo() {
+    monitorButton.addEventListener('click', () => {
+      console.log("Monitoring started...");
+      if (!model) {
+        console.error("COCO-SSD model not loaded yet.");
+        return;
+      }
+      monitorVideo();
+    });
+
+    function monitorVideo() {
       const cap = new cv.VideoCapture(video);
       const frame = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
 
       function analyzeFrame() {
-        if (!model) {
-          console.error("Model not loaded yet.");
-          return;
-        }
-
         cap.read(frame);
-
-        // Draw the frame on canvas
         cv.imshow(canvas, frame);
 
         // Convert frame to TensorFlow tensor
@@ -95,7 +102,11 @@
         model.detect(tensor).then(predictions => {
           tensor.dispose(); // Dispose tensor to save memory
 
-          // Draw detections
+          // Generate NLP description
+          const descriptionText = generateNLPDescription(predictions);
+          description.textContent = descriptionText;
+
+          // Draw bounding boxes and labels
           predictions.forEach(prediction => {
             const [x, y, width, height] = prediction.bbox;
             cv.rectangle(frame, new cv.Point(x, y), new cv.Point(x + width, y + height), [0, 255, 0, 255], 2);
@@ -103,16 +114,28 @@
           });
 
           cv.imshow(canvas, frame);
-
-          // Update description
-          description.textContent = predictions.map(p => p.class).join(", ") || "No objects detected.";
         });
 
-        // Call the next frame
         requestAnimationFrame(analyzeFrame);
       }
 
       requestAnimationFrame(analyzeFrame);
+    }
+
+    function generateNLPDescription(predictions) {
+      if (predictions.length === 0) {
+        return "No objects detected in the current frame.";
+      }
+
+      // Extract object classes and build sentences
+      const classes = predictions.map(prediction => prediction.class);
+      let descriptionText = `The camera sees ${classes.length} objects: ${classes.join(", ")}.`;
+
+      // Process text with Compromise.js for variations
+      let nlp = nlp(descriptionText);
+      const enhancedDescription = nlp.sentences().toNegative().out();
+      
+      return enhancedDescription || descriptionText;
     }
   </script>
 </body>
