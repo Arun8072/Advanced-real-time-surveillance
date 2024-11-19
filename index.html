@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-time Object Detection</title>
+    <title>Advanced Real-time Object, Pose, Face, and Statistical Anomaly Detection</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -112,7 +112,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Real-time Object Detection</h1>
+        <h1>Advanced Real-time Object, Pose, Face, and Statistical Anomaly Detection</h1>
         <div class="video-container">
             <video id="video" playsinline></video>
             <canvas id="canvas"></canvas>
@@ -135,15 +135,26 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.0/dist/simple-statistics.min.js"></script>
     <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <script>
-        let video, canvas, ctx, placeholderCanvas, placeholderCtx, model, stream;
+        let video, canvas, ctx, placeholderCanvas, placeholderCtx, objectDetectionModel, poseNetModel, stream;
         let isDetecting = false;
         let currentCameraFacingMode = 'environment';
         const objCountSpan = document.getElementById('obj_count');
         const nlpDescriptionDiv = document.getElementById('nlpDescription');
         let uniqueObjects = new Set();
         let prevObjects = [];
+        let objectTracker = {};
+        let gestureHistory = [];
+        let motionHistory = [];
+        let speedHistory = {};
+        let restrictedAreas = [
+            { x: 100, y: 100, width: 200, height: 150 },
+            { x: 400, y: 300, width: 150, height: 100 }
+        ];
 
         const toggleCameraButton = document.getElementById('toggleCamera');
         const switchCameraButton = document.getElementById('switchCamera');
@@ -165,7 +176,7 @@
             objCountSpan.textContent = uniqueObjects.size;
         }
 
-        function generateNLPDescription(objects) {
+        function generateNLPDescription(objects, poses, anomalies, motions, faceResults) {
             let description = '';
             const newObjects = objects.filter(obj => !prevObjects.some(prevObj => prevObj.class === obj.class));
             const disappearedObjects = prevObjects.filter(prevObj => !objects.some(obj => obj.class === prevObj.class));
@@ -190,36 +201,98 @@
                         movingObjects.push(`${obj.class} moving ${xDirection} and ${yDirection}`);
                     }
                 }
+
+                // Track object movement
+                if (!objectTracker[obj.class]) {
+                    objectTracker[obj.class] = [];
+                }
+                objectTracker[obj.class].push({x: obj.bbox[0], y: obj.bbox[1], time: Date.now()});
+                if (objectTracker[obj.class].length > 10) {
+                    objectTracker[obj.class].shift();
+                }
             });
 
             if (movingObjects.length > 0) {
                 description += `Movement detected: ${movingObjects.join(', ')}. `;
             }
 
-            // Add more detailed description
-            const objectCounts = objects.reduce((acc, obj) => {
-                acc[obj.class] = (acc[obj.class] || 0) + 1;
-                return acc;
-            }, {});
-
-            const objectDescriptions = Object.entries(objectCounts).map(([cls, count]) => {
-                return `${count} ${cls}${count > 1 ? 's' : ''}`;
-            });
-
-            if (objectDescriptions.length > 0) {
-                description += `Current scene: ${objectDescriptions.join(', ')}. `;
+            // Analyze object trajectories
+            for (const [objClass, trajectory] of Object.entries(objectTracker)) {
+                if (trajectory.length > 5) {
+                    const startPoint = trajectory[0];
+                    const endPoint = trajectory[trajectory.length - 1];
+                    const xDiff = endPoint.x - startPoint.x;
+                    const yDiff = endPoint.y - startPoint.y;
+                    const timeDiff = (endPoint.time - startPoint.time) / 1000; // in seconds
+                    const speed = Math.sqrt(xDiff * xDiff + yDiff * yDiff) / timeDiff;
+                    const direction = Math.atan2(yDiff, xDiff) * 180 / Math.PI;
+                    description += `${objClass} is moving at approximately ${speed.toFixed(2)} pixels/second in direction ${direction.toFixed(2)}°. `;
+                }
             }
 
-            // Describe spatial relationships
-            if (objects.length > 1) {
-                const centerObject = objects[0];
-                const otherObjects = objects.slice(1);
-                otherObjects.forEach(obj => {
-                    const xDiff = obj.bbox[0] - centerObject.bbox[0];
-                    const yDiff = obj.bbox[1] - centerObject.bbox[1];
-                    const xDirection = xDiff > 0 ? 'right' : 'left';
-                    const yDirection = yDiff > 0 ? 'below' : 'above';
-                    description += `${obj.class} is to the ${xDirection} and ${yDirection} of ${centerObject.class}. `;
+            // Add pose recognition description
+            if (poses && poses.length > 0) {
+                description += `Detected ${poses.length} person(s). `;
+                poses.forEach((pose, index) => {
+                    const keypoints = pose.keypoints;
+                    const leftWrist = keypoints.find(kp => kp.part === 'leftWrist');
+                    const rightWrist = keypoints.find(kp => kp.part === 'rightWrist');
+                    const nose = keypoints.find(kp => kp.part === 'nose');
+
+                    if (leftWrist && rightWrist && nose) {
+                        if (leftWrist.position.y < nose.position.y && rightWrist.position.y < nose.position.y) {
+                            description += `Person ${index + 1} is raising both hands. `;
+                            gestureHistory.push('raising hands');
+                        } else if (Math.abs(leftWrist.position.x - rightWrist.position.x) > 100) {
+                            description += `Person ${index + 1} might be waving. `;
+                            gestureHistory.push('waving');
+                        }
+                    }
+
+                    // Check for loitering in restricted areas
+                    restrictedAreas.forEach((area, areaIndex) => {
+                        if (nose.position.x > area.x && nose.position.x < area.x + area.width &&
+                            nose.position.y > area.y && nose.position.y < area.y + area.height) {
+                            description += `ALERT: Person ${index + 1} is in restricted area ${areaIndex + 1}. `;
+                        }
+                    });
+                });
+            }
+
+            // Analyze gesture history
+            if (gestureHistory.length > 5) {
+                const recentGestures = gestureHistory.slice(-5);
+                if (recentGestures.filter(g => g === 'waving').length >= 3) {
+                    description += 'Continuous waving detected. ';
+                } else if (recentGestures.filter(g => g === 'raising hands').length >= 3) {
+                    description += 'Repeated hand raising detected. ';
+                }
+                gestureHistory = gestureHistory.slice(-10); // Keep only last 10 gestures
+            }
+
+            // Add anomaly detection description
+            if (anomalies && anomalies.length > 0) {
+                description += `Statistical anomalies detected: ${anomalies.join(', ')}. `;
+            }
+
+            // Add motion detection and behavior classification description
+            if (motions && motions.length > 0) {
+                motions.forEach(motion => {
+                    description += `${motion.object} is ${motion.behavior} at ${motion.speed.toFixed(2)} pixels/second. `;
+                });
+            }
+
+            // Add face analysis results
+            if (faceResults && faceResults.length > 0) {
+                description += `Detected ${faceResults.length} face(s). `;
+                faceResults.forEach((face, index) => {
+                    description += `Face ${index + 1}: `;
+                    if (face.age) description += `Estimated age: ${Math.round(face.age)}. `;
+                    if (face.gender) description += `Estimated gender: ${face.gender}. `;
+                    if (face.expressions) {
+                        const topExpression = Object.entries(face.expressions).reduce((a, b) => a[1] > b[1] ? a : b);
+                        description += `Dominant expression: ${topExpression[0]}. `;
+                    }
                 });
             }
 
@@ -227,13 +300,43 @@
             return description.trim();
         }
 
-        async function loadModel() {
+        async function loadModels() {
             try {
                 log('Loading COCO-SSD model...');
-                model = await cocoSsd.load();
-                log('Model loaded successfully');
+                objectDetectionModel = await cocoSsd.load();
+                log('COCO-SSD model loaded successfully');
+
+                log('Loading PoseNet model...');
+                poseNetModel = await posenet.load();
+                log('PoseNet model loaded successfully');
+
+                log('Loading Face-API.js models...');
+                const modelPath = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights/';
+
+                log('Loading SSD MobileNetv1 face detection model...');
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(modelPath + 'ssd_mobilenetv1_model-weights_manifest.json');
+                log('SSD MobileNetv1 face detection model loaded successfully');
+
+                log('Loading Face Landmark Detection model...');
+                await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath + 'face_landmark_68_model-weights_manifest.json');
+                log('Face Landmark Detection model loaded successfully');
+
+                log('Loading Face Recognition model...');
+                await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath + 'face_recognition_model-weights_manifest.json');
+                log('Face Recognition model loaded successfully');
+
+                log('Loading Face Expression Detection model...');
+                await faceapi.nets.faceExpressionNet.loadFromUri(modelPath + 'face_expression_model-weights_manifest.json');
+                log('Face Expression Detection model loaded successfully');
+
+                log('Loading Age and Gender Estimation model...');
+                await faceapi.nets.ageGenderNet.loadFromUri(modelPath + 'age_gender_model-weights_manifest.json');
+                log('Age and Gender Estimation model loaded successfully');
+
+                log('All Face-API.js models loaded successfully');
             } catch (error) {
-                log('Error loading model: ' + error.message);
+                log('Error loading models: ' + error.message);
+                console.error('Error details:', error);
             }
         }
 
@@ -302,22 +405,22 @@
         }
 
         async function startDetection() {
-            if (!model) {
-                await loadModel();
+            if (!objectDetectionModel || !poseNetModel) {
+                await loadModels();
             }
 
             isDetecting = !isDetecting;
             startDetectionButton.textContent = isDetecting ? 'Stop Detection' : 'Start Detection';
 
             if (isDetecting) {
-                log('Object detection started');
-                detectObjects();
+                log('Object, pose, face, and statistical anomaly detection started');
+                detectAll();
             } else {
-                log('Object detection stopped');
+                log('Object, pose, face, and statistical anomaly detection stopped');
             }
         }
 
-        async function detectObjects() {
+        async function detectAll() {
             if (!isDetecting) return;
 
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -325,18 +428,23 @@
             const mat = cv.matFromImageData(imageData);
 
             try {
-                const predictions = await model.detect(video);
-                log(`Detected ${predictions.length} objects`);
+                const objectPredictions = await objectDetectionModel.detect(video);
+                const poses = await poseNetModel.estimateMultiplePoses(video);
+                const motions = detectMotion(mat, objectPredictions);
+                const anomalies = detectStatisticalAnomalies(motions);
+                const faceResults = await detectFaces(video);
 
-                predictions.forEach(prediction => {
+                log(`Detected ${objectPredictions.length} objects, ${poses.length} poses, ${motions.length} motions, ${anomalies.length} anomalies, and ${faceResults.length} faces`);
+
+                objectPredictions.forEach(prediction => {
                     uniqueObjects.add(prediction.class);
                 });
                 updateObjectCount();
 
                 let detectionText = '';
-                predictions.forEach((prediction, index) => {
+                objectPredictions.forEach((prediction, index) => {
                     const [x, y, width, height] = prediction.bbox;
-                    const color = [255, 0, 0, 255]; // Red color for bounding box
+                    const color = [255, 0, 0, 255]; // Red color for object bounding box
 
                     const point1 = new cv.Point(x, y);
                     const point2 = new cv.Point(x + width, y + height);
@@ -349,10 +457,57 @@
                     detectionText += `${index + 1}. ${text} at (${Math.round(x)}, ${Math.round(y)})\n`;
                 });
 
+                // Draw pose keypoints and skeletons
+                poses.forEach((pose, index) => {
+                    const color = [0, 255, 0, 255]; // Green color for pose
+                    pose.keypoints.forEach(keypoint => {
+                        if (keypoint.score > 0.2) {
+                            const { y, x } = keypoint.position;
+                            cv.circle(mat, new cv.Point(x, y), 5, color, -1);
+                        }
+                    });
+
+                    // Draw skeleton
+                    const adjacentKeyPoints = posenet.getAdjacentKeyPoints(pose.keypoints, 0.2);
+                    adjacentKeyPoints.forEach(keypoints => {
+                        cv.line(mat, 
+                            new cv.Point(keypoints[0].position.x, keypoints[0].position.y),
+                            new cv.Point(keypoints[1].position.x, keypoints[1].position.y),
+                            color, 2);
+                    });
+
+                    detectionText += `Person ${index + 1} detected with ${pose.keypoints.length} keypoints\n`;
+                });
+
+                // Draw restricted areas
+                restrictedAreas.forEach((area, index) => {
+                    cv.rectangle(mat, 
+                        new cv.Point(area.x, area.y),
+                        new cv.Point(area.x + area.width, area.y + area.height),
+                        [255, 255, 0, 255], 2); // Yellow color for restricted areas
+                    cv.putText(mat, `Restricted Area ${index + 1}`, 
+                        new cv.Point(area.x, area.y - 5),
+                        cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 255, 0, 255], 1);
+                });
+
+                // Draw face detection results
+                faceResults.forEach((detection, index) => {
+                    const { detection: { box }, age, gender, expressions } = detection;
+                    const { x, y, width, height } = box;
+                    const color = [0, 0, 255, 255]; // Blue color for face bounding box
+
+                    cv.rectangle(mat, new cv.Point(x, y), new cv.Point(x + width, y + height), color, 2);
+
+                    const text = `Face ${index + 1}: ${Math.round(age)}y ${gender}`;
+                    cv.putText(mat, text, new cv.Point(x, y - 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
+
+                    detectionText += `${text}\n`;
+                });
+
                 cv.imshow(canvas, mat);
                 detectionResultsDiv.textContent = detectionText;
 
-                const nlpDescription = generateNLPDescription(predictions);
+                const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults);
                 if (nlpDescription) {
                     const descriptionElement = document.createElement('p');
                     descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
@@ -362,12 +517,90 @@
                     }
                 }
             } catch (error) {
-                log('Error during object detection: ' + error.message);
+                log('Error during detection: ' + error.message);
             } finally {
                 mat.delete();
             }
 
-            requestAnimationFrame(detectObjects);
+            requestAnimationFrame(detectAll);
+        }
+
+        function detectStatisticalAnomalies(motions) {
+            const anomalies = [];
+            motions.forEach(motion => {
+                if (!speedHistory[motion.object]) {
+                    speedHistory[motion.object] = [];
+                }
+                speedHistory[motion.object].push(motion.speed);
+
+                // Keep only the last 50 speed records
+                if (speedHistory[motion.object].length > 50) {
+                    speedHistory[motion.object].shift();
+                }
+
+                if (speedHistory[motion.object].length > 10) {
+                    const speeds = speedHistory[motion.object];
+                    const mean = ss.mean(speeds);
+                    const stdDev = ss.standardDeviation(speeds);
+                    const zScore = Math.abs((motion.speed - mean) / stdDev);
+
+                    if (zScore > 2) {
+                        anomalies.push(`Unusual ${motion.object} speed`);
+                    }
+                }
+            });
+
+            return anomalies;
+        }
+
+        function detectMotion(mat, objects) {
+            const motions = [];
+            const prevFrame = new cv.Mat();
+            cv.cvtColor(mat, prevFrame, cv.COLOR_RGBA2GRAY);
+
+            if (motionHistory.length > 0) {
+                const prevMat = motionHistory[motionHistory.length - 1];
+                const flow = new cv.Mat();
+                cv.calcOpticalFlowFarneback(prevMat, prevFrame, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
+
+                objects.forEach(obj => {
+                    const [x, y, width, height] = obj.bbox.map(Math.round);
+                    const roi = flow.roi(new cv.Rect(x, y, width, height));
+                    const meanFlow = cv.mean(roi);
+                    const speed = Math.sqrt(meanFlow[0] * meanFlow[0] + meanFlow[1] * meanFlow[1]);
+
+                    let behavior = 'standing';
+                    if (speed > 5) behavior = 'walking';
+                    if (speed > 10) behavior = 'running';
+
+                    motions.push({ object: obj.class, behavior, speed });
+
+                    roi.delete();
+                });
+
+                flow.delete();
+            }
+
+            motionHistory.push(prevFrame);
+            if (motionHistory.length > 2) {
+                motionHistory.shift().delete();
+            }
+
+            return motions;
+        }
+
+        async function detectFaces(inputVideo) {
+            try {
+                const detections = await faceapi.detectAllFaces(inputVideo, new faceapi.SsdMobilenetv1Options())
+                    .withFaceLandmarks()
+                    .withFaceExpressions()
+                    .withAgeAndGender();
+
+                return detections;
+            } catch (error) {
+                log('Error during face detection: ' + error.message);
+                return [];
+            }
         }
 
         video = document.getElementById('video');
@@ -396,7 +629,7 @@
         // Load OpenCV.js
         function onOpenCvReady() {
             log('OpenCV.js is ready');
-            loadModel();
+            loadModels();
         }
     </script>
 </body>
