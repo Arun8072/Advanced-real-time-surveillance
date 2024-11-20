@@ -82,14 +82,7 @@
             font-size: 14px;
             overflow-y: auto;
             padding-bottom: 30px; /* Space for the expand button */
-        }
-
-        #log {
-            max-height: 80px; /* Approximately 4 lines */
-        }
-
-        #nlpDescription {
-            max-height: 200px; /* Approximately 10 lines */
+            max-height: 200px; /* Set a fixed height */
         }
 
         .expand-btn {
@@ -103,10 +96,17 @@
             cursor: pointer;
             font-size: 12px;
             border-radius: 3px;
+            z-index: 10; /* Ensure the button is always on top */
         }
 
         .expanded {
             max-height: none !important;
+        }
+        .log-container {
+            position: relative;
+        }
+        .log-content {
+            overflow-y: auto;
         }
     </style>
 </head>
@@ -125,10 +125,12 @@
         </div>
         <div id="total_obj">Total Detected <span id="obj_count">0</span> objects</div>
         <div id="detectionResults"></div>
-        <div id="nlpDescription">
+        <div id="nlpDescription" class="log-container">
+            <div class="log-content"></div>
             <button class="expand-btn">Expand</button>
         </div>
-        <div id="log">
+        <div id="log" class="log-container">
+            <div class="log-content"></div>
             <button class="expand-btn">Expand</button>
         </div>
     </div>
@@ -168,9 +170,9 @@
             console.log(message);
             const logEntry = document.createElement('div');
             logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
-            logDiv.insertBefore(logEntry, logDiv.firstChild);
-            if (logDiv.childElementCount > 50) {
-                logDiv.removeChild(logDiv.lastChild);
+            document.querySelector('#log .log-content').insertBefore(logEntry, document.querySelector('#log .log-content').firstChild);
+            if (document.querySelector('#log .log-content').childElementCount > 50) {
+                document.querySelector('#log .log-content').removeChild(document.querySelector('#log .log-content').lastChild);
             }
         }
 
@@ -228,7 +230,12 @@
                     const timeDiff = (endPoint.time - startPoint.time) / 1000; // in seconds
                     const speed = Math.sqrt(xDiff * xDiff + yDiff * yDiff) / timeDiff;
                     const direction = Math.atan2(yDiff, xDiff) * 180 / Math.PI;
-                    description += `${objClass} is moving at approximately ${speed.toFixed(2)} pixels/second in direction ${direction.toFixed(2)}°. `;
+
+                    const speedDescription = getSpeedDescription(speed);
+                    const directionDescription = getDirectionDescription(direction);
+                    const positionDescription = getPositionDescription(endPoint.x, endPoint.y, canvas.width, canvas.height);
+
+                    description += `${objClass} is moving ${speedDescription} ${directionDescription} in the ${positionDescription} of the screen. `;
                 }
             }
 
@@ -285,7 +292,8 @@
             // Add motion detection and behavior classification description
             if (motions && motions.length > 0) {
                 motions.forEach(motion => {
-                    description += `${motion.object} is ${motion.behavior} at ${motion.speed.toFixed(2)} pixels/second. `;
+                    const speedDescription = getSpeedDescription(motion.speed);
+                    description += `${motion.object} is ${motion.behavior} at ${speedDescription} speed. `;
                 });
             }
 
@@ -305,6 +313,32 @@
 
             prevObjects = objects;
             return description.trim();
+        }
+
+        function getSpeedDescription(speed) {
+            if (speed < 1) return "stationary";
+            if (speed < 3) return "slowly";
+            if (speed < 7) return "at medium speed";
+            if (speed < 15) return "quickly";
+            return "very quickly";
+        }
+
+        function getDirectionDescription(degrees) {
+            if (degrees < 0) degrees += 360;
+            if (degrees >= 315 || degrees < 45) return "upwards";
+            if (degrees >= 45 && degrees < 135) return "to the right";
+            if (degrees >= 135 && degrees < 225) return "downwards";
+            return "to the left";
+        }
+
+        function getPositionDescription(x, y, width, height) {
+            const xThird = width / 3;
+            const yThird = height / 3;
+            
+            let vertical = y < yThird ? "top" : (y < 2 * yThird ? "middle" : "bottom");
+            let horizontal = x < xThird ? "left" : (x < 2 * xThird ? "center" : "right");
+            
+            return `${vertical}-${horizontal}`;
         }
 
         async function loadModels() {
@@ -430,35 +464,17 @@
         async function detectAll() {
             if (!isDetecting) return;
 
-            log('Starting detection cycle');
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const mat = cv.matFromImageData(imageData);
 
             try {
-                log('Detecting objects...');
                 const objectPredictions = await objectDetectionModel.detect(video);
-                log(`Object detection complete. Found ${objectPredictions.length} objects.`);
-
-                log('Estimating poses...');
                 const poses = await poseNetModel.estimateMultiplePoses(video);
-                log(`Pose estimation complete. Found ${poses.length} poses.`);
-
-                log('Detecting motion...');
                 const motions = detectMotion(mat, objectPredictions);
-                log(`Motion detection complete. Found ${motions.length} motions.`);
-
-                log('Detecting statistical anomalies...');
                 const anomalies = detectStatisticalAnomalies(motions);
-                log(`Anomaly detection complete. Found ${anomalies.length} anomalies.`);
-
-                log('Detecting faces...');
                 const faceResults = await detectFaces(video);
-                log(`Face detection complete. Found ${faceResults.length} faces.`);
-
-                log('Analyzing behavior...');
                 const behaviors = analyzeBehavior(poses);
-                log(`Behavior analysis complete. Analyzed ${behaviors.length} behaviors.`);
 
                 log(`Detected ${objectPredictions.length} objects, ${poses.length} poses, ${motions.length} motions, ${anomalies.length} anomalies, ${faceResults.length} faces, and ${behaviors.length} behaviors`);
 
@@ -538,9 +554,9 @@
                 if (nlpDescription) {
                     const descriptionElement = document.createElement('p');
                     descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
-                    nlpDescriptionDiv.insertBefore(descriptionElement, nlpDescriptionDiv.firstChild);
-                    if (nlpDescriptionDiv.childElementCount > 50) {
-                        nlpDescriptionDiv.removeChild(nlpDescriptionDiv.lastChild);
+                    document.querySelector('#nlpDescription .log-content').insertBefore(descriptionElement, document.querySelector('#nlpDescription .log-content').firstChild);
+                    if (document.querySelector('#nlpDescription .log-content').childElementCount > 50) {
+                        document.querySelector('#nlpDescription .log-content').removeChild(document.querySelector('#nlpDescription .log-content').lastChild);
                     }
                 }
             } catch (error) {
@@ -631,10 +647,6 @@
         }
 
         function analyzeBehavior(poses) {
-            if (!poses || poses.length === 0) {
-                log('No poses detected for behavior analysis');
-                return [];
-            }
             return poses.map((pose, index) => {
                 const keypoints = pose.keypoints;
                 const nose = keypoints.find(kp => kp.part === 'nose');
@@ -684,10 +696,7 @@
         }
 
         function calculateVerticalSpeed(keypoint, personIndex) {
-            if (!keypoint) {
-                log(`No keypoint provided for person ${personIndex}`);
-                return 0;
-            }
+            if (!keypoint) return 0;
 
             const currentTime = Date.now();
             const currentY = keypoint.position.y;
@@ -699,12 +708,6 @@
 
             const { lastY, lastTime } = positionHistory[personIndex];
             const timeDiff = (currentTime - lastTime) / 1000; // Convert to seconds
-            
-            if (timeDiff === 0) {
-                log(`Time difference is zero for person ${personIndex}`);
-                return 0;
-            }
-
             const speed = Math.abs(currentY - lastY) / timeDiff;
 
             positionHistory[personIndex] = { lastY: currentY, lastTime: currentTime };
@@ -741,7 +744,7 @@
         // Expand functionality for log and nlpDescription
         document.querySelectorAll('.expand-btn').forEach(btn => {
             btn.addEventListener('click', function() {
-                const parentDiv = this.parentElement;
+                const parentDiv = this.closest('.log-container');
                 parentDiv.classList.toggle('expanded');
                 this.textContent = parentDiv.classList.contains('expanded') ? 'Collapse' : 'Expand';
             });
