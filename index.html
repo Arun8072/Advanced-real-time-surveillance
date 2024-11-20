@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Real-time Object, Pose, Face, and Statistical Anomaly Detection</title>
+    <title>Advanced Real-time Object, Pose, Face, Behavior, and Statistical Anomaly Detection</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -112,7 +112,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Advanced Real-time Object, Pose, Face, and Statistical Anomaly Detection</h1>
+        <h1>Advanced Real-time Object, Pose, Face, Behavior, and Statistical Anomaly Detection</h1>
         <div class="video-container">
             <video id="video" playsinline></video>
             <canvas id="canvas"></canvas>
@@ -151,6 +151,8 @@
         let gestureHistory = [];
         let motionHistory = [];
         let speedHistory = {};
+        let behaviorHistory = []; // Updated initialization
+        let positionHistory = []; // Added positionHistory
         let restrictedAreas = [
             { x: 100, y: 100, width: 200, height: 150 },
             { x: 400, y: 300, width: 150, height: 100 }
@@ -176,7 +178,7 @@
             objCountSpan.textContent = uniqueObjects.size;
         }
 
-        function generateNLPDescription(objects, poses, anomalies, motions, faceResults) {
+        function generateNLPDescription(objects, poses, anomalies, motions, faceResults, behaviors) {
             let description = '';
             const newObjects = objects.filter(obj => !prevObjects.some(prevObj => prevObj.class === obj.class));
             const disappearedObjects = prevObjects.filter(prevObj => !objects.some(obj => obj.class === prevObj.class));
@@ -230,7 +232,7 @@
                 }
             }
 
-            // Add pose recognition description
+            // Add pose recognition and behavior monitoring description
             if (poses && poses.length > 0) {
                 description += `Detected ${poses.length} person(s). `;
                 poses.forEach((pose, index) => {
@@ -256,6 +258,11 @@
                             description += `ALERT: Person ${index + 1} is in restricted area ${areaIndex + 1}. `;
                         }
                     });
+
+                    // Add behavior description
+                    if (behaviors[index]) {
+                        description += `Person ${index + 1} is ${behaviors[index]}. `;
+                    }
                 });
             }
 
@@ -413,28 +420,47 @@
             startDetectionButton.textContent = isDetecting ? 'Stop Detection' : 'Start Detection';
 
             if (isDetecting) {
-                log('Object, pose, face, and statistical anomaly detection started');
+                log('Object, pose, face, behavior, and statistical anomaly detection started');
                 detectAll();
             } else {
-                log('Object, pose, face, and statistical anomaly detection stopped');
+                log('Object, pose, face, behavior, and statistical anomaly detection stopped');
             }
         }
 
         async function detectAll() {
             if (!isDetecting) return;
 
+            log('Starting detection cycle');
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const mat = cv.matFromImageData(imageData);
 
             try {
+                log('Detecting objects...');
                 const objectPredictions = await objectDetectionModel.detect(video);
-                const poses = await poseNetModel.estimateMultiplePoses(video);
-                const motions = detectMotion(mat, objectPredictions);
-                const anomalies = detectStatisticalAnomalies(motions);
-                const faceResults = await detectFaces(video);
+                log(`Object detection complete. Found ${objectPredictions.length} objects.`);
 
-                log(`Detected ${objectPredictions.length} objects, ${poses.length} poses, ${motions.length} motions, ${anomalies.length} anomalies, and ${faceResults.length} faces`);
+                log('Estimating poses...');
+                const poses = await poseNetModel.estimateMultiplePoses(video);
+                log(`Pose estimation complete. Found ${poses.length} poses.`);
+
+                log('Detecting motion...');
+                const motions = detectMotion(mat, objectPredictions);
+                log(`Motion detection complete. Found ${motions.length} motions.`);
+
+                log('Detecting statistical anomalies...');
+                const anomalies = detectStatisticalAnomalies(motions);
+                log(`Anomaly detection complete. Found ${anomalies.length} anomalies.`);
+
+                log('Detecting faces...');
+                const faceResults = await detectFaces(video);
+                log(`Face detection complete. Found ${faceResults.length} faces.`);
+
+                log('Analyzing behavior...');
+                const behaviors = analyzeBehavior(poses);
+                log(`Behavior analysis complete. Analyzed ${behaviors.length} behaviors.`);
+
+                log(`Detected ${objectPredictions.length} objects, ${poses.length} poses, ${motions.length} motions, ${anomalies.length} anomalies, ${faceResults.length} faces, and ${behaviors.length} behaviors`);
 
                 objectPredictions.forEach(prediction => {
                     uniqueObjects.add(prediction.class);
@@ -477,6 +503,7 @@
                     });
 
                     detectionText += `Person ${index + 1} detected with ${pose.keypoints.length} keypoints\n`;
+                    detectionText += `Behavior: ${behaviors[index]}\n`;
                 });
 
                 // Draw restricted areas
@@ -507,7 +534,7 @@
                 cv.imshow(canvas, mat);
                 detectionResultsDiv.textContent = detectionText;
 
-                const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults);
+                const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors);
                 if (nlpDescription) {
                     const descriptionElement = document.createElement('p');
                     descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
@@ -601,6 +628,100 @@
                 log('Error during face detection: ' + error.message);
                 return [];
             }
+        }
+
+        function analyzeBehavior(poses) {
+            if (!poses || poses.length === 0) {
+                log('No poses detected for behavior analysis');
+                return [];
+            }
+            return poses.map((pose, index) => {
+                const keypoints = pose.keypoints;
+                const nose = keypoints.find(kp => kp.part === 'nose');
+                const leftShoulder = keypoints.find(kp => kp.part === 'leftShoulder');
+                const rightShoulder = keypoints.find(kp => kp.part === 'rightShoulder');
+                const leftHip = keypoints.find(kp => kp.part === 'leftHip');
+                const rightHip = keypoints.find(kp => kp.part === 'rightHip');
+                const leftKnee = keypoints.find(kp => kp.part === 'leftKnee');
+                const rightKnee = keypoints.find(kp => kp.part === 'rightKnee');
+
+                if (!nose || !leftShoulder || !rightShoulder || !leftHip || !rightHip || !leftKnee || !rightKnee) {
+                    return 'unknown';
+                }
+
+                const verticalSpeed = calculateVerticalSpeed(nose, index);
+                const hipKneeAngle = calculateAngle(leftHip, leftKnee, rightKnee);
+
+                let behavior = 'standing';
+
+                if (verticalSpeed > 20) {
+                    behavior = 'jumping';
+                } else if (verticalSpeed > 10) {
+                    behavior = 'running';
+                } else if (verticalSpeed > 2) {
+                    behavior = 'walking';
+                } else if (hipKneeAngle < 90) {
+                    behavior = 'sitting';
+                }
+
+                // Update behavior history
+                if (!behaviorHistory[index]) {
+                    behaviorHistory[index] = [];
+                }
+                behaviorHistory[index].push(behavior);
+                if (behaviorHistory[index].length > 10) {
+                    behaviorHistory[index].shift();
+                }
+
+                // Smooth out behavior classification
+                const recentBehaviors = behaviorHistory[index];
+                const dominantBehavior = recentBehaviors.reduce((a, b) =>
+                    recentBehaviors.filter(v => v === a).length >= recentBehaviors.filter(v => v === b).length ? a : b
+                );
+
+                return dominantBehavior;
+            });
+        }
+
+        function calculateVerticalSpeed(keypoint, personIndex) {
+            if (!keypoint) {
+                log(`No keypoint provided for person ${personIndex}`);
+                return 0;
+            }
+
+            const currentTime = Date.now();
+            const currentY = keypoint.position.y;
+
+            if (!positionHistory[personIndex]) {
+                positionHistory[personIndex] = { lastY: currentY, lastTime: currentTime };
+                return 0;
+            }
+
+            const { lastY, lastTime } = positionHistory[personIndex];
+            const timeDiff = (currentTime - lastTime) / 1000; // Convert to seconds
+            
+            if (timeDiff === 0) {
+                log(`Time difference is zero for person ${personIndex}`);
+                return 0;
+            }
+
+            const speed = Math.abs(currentY - lastY) / timeDiff;
+
+            positionHistory[personIndex] = { lastY: currentY, lastTime: currentTime };
+
+            return speed;
+        }
+
+        function calculateAngle(pointA, pointB, pointC) {
+            const vectorAB = { x: pointB.position.x - pointA.position.x, y: pointB.position.y - pointA.position.y };
+            const vectorBC = { x: pointC.position.x - pointB.position.x, y: pointC.position.y - pointB.position.y };
+
+            const dotProduct = vectorAB.x * vectorBC.x + vectorAB.y * vectorBC.y;
+            const magnitudeAB = Math.sqrt(vectorAB.x * vectorAB.x + vectorAB.y * vectorAB.y);
+            const magnitudeBC = Math.sqrt(vectorBC.x * vectorBC.x + vectorBC.y * vectorBC.y);
+
+            const angle = Math.acos(dotProduct / (magnitudeAB * magnitudeBC));
+            return angle * (180 / Math.PI); // Convert to degrees
         }
 
         video = document.getElementById('video');
