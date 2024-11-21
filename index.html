@@ -141,7 +141,7 @@
     <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.0/dist/simple-statistics.min.js"></script>
     <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
-    <script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
     <script>
         let video, canvas, ctx, placeholderCanvas, placeholderCtx, objectDetectionModel, poseNetModel, stream;
         let isDetecting = false;
@@ -345,6 +345,11 @@
 
         async function loadModels() {
             try {
+                if (!WebAssembly) {
+                    log('WebAssembly is not supported by this browser.');
+                    return;
+                }
+
                 log('Loading COCO-SSD model...');
                 objectDetectionModel = await cocoSsd.load();
                 log('COCO-SSD model loaded successfully');
@@ -393,6 +398,13 @@
             await tesseractWorker.load();
             await tesseractWorker.loadLanguage('eng');
             await tesseractWorker.initialize('eng');
+        }
+
+        async function resetTesseractWorker() {
+            if (tesseractWorker) {
+                await tesseractWorker.terminate();
+            }
+            await initializeTesseractWorker();
         }
 
         async function toggleCamera() {
@@ -484,6 +496,16 @@
                 log('Invalid image data from canvas');
                 return;
             }
+
+            // Resize the image for Tesseract
+            const scale = 0.5;  // Reduce size by 50%
+            const resizedCanvas = document.createElement('canvas');
+            resizedCanvas.width = canvas.width * scale;
+            resizedCanvas.height = canvas.height * scale;
+            const resizedCtx = resizedCanvas.getContext('2d');
+            resizedCtx.drawImage(video, 0, 0, resizedCanvas.width, resizedCanvas.height);
+            const resizedImageData = resizedCtx.getImageData(0, 0, resizedCanvas.width, resizedCanvas.height);
+
             const mat = cv.matFromImageData(imageData);
 
             try {
@@ -493,8 +515,8 @@
                 const anomalies = detectStatisticalAnomalies(motions);
                 const faceResults = await detectFaces(video);
                 const behaviors = analyzeBehavior(poses);
-                const extractedText = await extractTextFromImage(imageData);
-                const vehicleNumbers = await detectVehicleNumbers(objectPredictions, imageData);
+                const extractedText = await extractTextFromImage(resizedImageData);
+                const vehicleNumbers = await detectVehicleNumbers(objectPredictions, resizedImageData);
 
                 log(`Detected ${objectPredictions.length} objects, ${poses.length} poses, ${motions.length} motions, ${anomalies.length} anomalies, ${faceResults.length} faces, ${behaviors.length} behaviors, ${extractedText ? 'text' : 'no text'}, and ${vehicleNumbers.length} vehicle numbers`);
 
@@ -761,6 +783,7 @@
             } catch (error) {
                 log(`Tesseract error: ${error.message}`);
                 console.error('Text extraction error details:', error);
+                await resetTesseractWorker();  // Reset worker on failure
                 return '';
             }
         }
@@ -785,6 +808,7 @@
                     } catch (error) {
                         log(`Error during vehicle number detection: ${error.message}`);
                         console.error('Vehicle number detection error details:', error);
+                        await resetTesseractWorker();  // Reset worker on failure
                     }
                 }
             }
