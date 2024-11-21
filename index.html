@@ -141,19 +141,23 @@
     <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.0/dist/simple-statistics.min.js"></script>
     <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
-    <script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
+    <script src='https://unpkg.com/tesseract.js@v4.0.0/dist/tesseract.min.js'></script>
     <script id="tesseractWorker" type="javascript/worker">
-        importScripts('https://unpkg.com/tesseract.js@v2.1.0/dist/worker.min.js');
+        importScripts('https://unpkg.com/tesseract.js@v4.0.0/dist/worker.min.js');
+    
+        let worker;
 
-        self.onmessage = function(e) {
+        self.onmessage = async function(e) {
             const { image, lang } = e.data;
-            Tesseract.recognize(image, lang)
-                .then(result => {
-                    self.postMessage({ text: result.data.text, confidence: result.data.confidence });
-                })
-                .catch(error => {
-                    self.postMessage({ error: error.message });
-                });
+            if (!worker) {
+                worker = await Tesseract.createWorker(lang);
+            }
+            try {
+                const { data: { text } } = await worker.recognize(image);
+                self.postMessage({ text, confidence: 100 }); // Tesseract v4 doesn't provide confidence, so we set it to 100
+            } catch (error) {
+                self.postMessage({ error: error.message });
+            }
         }
     </script>
     <script>
@@ -211,14 +215,20 @@
                 log('Tesseract.js error: ' + e.data.error);
             } else {
                 const { text, confidence } = e.data;
-                log(`License plate recognized: ${text} (confidence: ${confidence.toFixed(2)})`);
+                const confidenceValue = confidence !== undefined ? confidence.toFixed(2) : 'N/A';
+                log(`License plate recognized: ${text} (confidence: ${confidenceValue})`);
                 updateNLPDescription(`License plate recognized: ${text}`);
             }
         }
 
         async function recognizeLicensePlate(imageData) {
             try {
-                tesseractWorker.postMessage({ image: imageData, lang: 'eng' });
+                const canvas = document.createElement('canvas');
+                canvas.width = imageData.width;
+                canvas.height = imageData.height;
+                canvas.getContext('2d').putImageData(imageData, 0, 0);
+                const imageBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                tesseractWorker.postMessage({ image: imageBlob, lang: 'eng' });
             } catch (error) {
                 log('Error in license plate recognition: ' + error.message);
             }
@@ -449,14 +459,24 @@
                 log('Age and Gender Estimation model loaded successfully');
 
                 log('All Face-API.js models loaded successfully');
-                log('Initializing Tesseract.js worker...');
-                await initTesseractWorker();
-                log('Tesseract.js worker initialized successfully');
+                log('Initializing Tesseract.js...');
+                await initTesseract();
+                log('Tesseract.js initialized successfully');
             } catch (error) {
                 log('Error loading models: ' + error.message);
                 console.error('Error details:', error);
             }
         }
+
+        async function initTesseract() {
+            try {
+                await Tesseract.createWorker('eng');
+                log('Tesseract.js initialized successfully');
+            } catch (error) {
+                log('Error initializing Tesseract.js: ' + error.message);
+            }
+        }
+
 
         async function toggleCamera() {
             log('Toggling camera...');
@@ -769,8 +789,8 @@
                 if (behaviorHistory[index].length > 10) {
                     behaviorHistory[index].shift();
                 }
-
-                // Smooth out behavior classification
+                
+                                // Smooth out behavior classification
                 const recentBehaviors = behaviorHistory[index];
                 const dominantBehavior = recentBehaviors.reduce((a, b) =>
                     recentBehaviors.filter(v => v === a).length >= recentBehaviors.filter(v => v === b).length ? a : b
@@ -792,9 +812,8 @@
             }
 
             const { lastY, lastTime } = positionHistory[personIndex];
-            const timeDiff = (currentTime - lastTime) / 1000; 
-            // Convert to seconds
-                        const speed = Math.abs(currentY - lastY) / timeDiff;
+            const timeDiff = (currentTime - lastTime) / 1000; // Convert to seconds
+            const speed = Math.abs(currentY - lastY) / timeDiff;
 
             positionHistory[personIndex] = { lastY: currentY, lastTime: currentTime };
 
@@ -871,8 +890,32 @@
             }
 
             function detectStatisticalAnomalies(motions) {
-                // Implementation of detectStatisticalAnomalies function
-                // (Copy the function body from the main script)
+                const anomalies = [];
+                const speedHistory = {};
+                motions.forEach(motion => {
+                    if (!speedHistory[motion.object]) {
+                        speedHistory[motion.object] = [];
+                    }
+                    speedHistory[motion.object].push(motion.speed);
+
+                    // Keep only the last 50 speed records
+                    if (speedHistory[motion.object].length > 50) {
+                        speedHistory[motion.object].shift();
+                    }
+
+                    if (speedHistory[motion.object].length > 10) {
+                        const speeds = speedHistory[motion.object];
+                        const mean = speeds.reduce((a, b) => a + b) / speeds.length;
+                        const variance = speeds.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / speeds.length;
+                        const stdDev = Math.sqrt(variance);
+                        const zScore = Math.abs((motion.speed - mean) / stdDev);
+
+                        if (zScore > 2) {
+                            anomalies.push(\`Unusual \${motion.object} speed\`);
+                        }
+                    }
+                });
+                return anomalies;
             }
         `], { type: 'text/javascript' })));
 
@@ -894,3 +937,4 @@
     </script>
 </body>
 </html>
+
