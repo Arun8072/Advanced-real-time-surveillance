@@ -167,6 +167,8 @@
         const detectionResultsDiv = document.getElementById('detectionResults');
         const logDiv = document.getElementById('log');
 
+        let tesseractWorker;
+
         function log(message) {
             console.log(message);
             const logEntry = document.createElement('div');
@@ -355,34 +357,41 @@
                 const modelPath = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights/';
 
                 log('Loading SSD MobileNetv1 face detection model...');
-                await faceapi.nets.ssdMobilenetv1.loadFromUri(modelPath + 'ssd_mobilenetv1_model-weights_manifest.json');
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(modelPath);
                 log('SSD MobileNetv1 face detection model loaded successfully');
 
                 log('Loading Face Landmark Detection model...');
-                await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath + 'face_landmark_68_model-weights_manifest.json');
+                await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
                 log('Face Landmark Detection model loaded successfully');
 
                 log('Loading Face Recognition model...');
-                await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath + 'face_recognition_model-weights_manifest.json');
+                await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath);
                 log('Face Recognition model loaded successfully');
 
                 log('Loading Face Expression Detection model...');
-                await faceapi.nets.faceExpressionNet.loadFromUri(modelPath + 'face_expression_model-weights_manifest.json');
+                await faceapi.nets.faceExpressionNet.loadFromUri(modelPath);
                 log('Face Expression Detection model loaded successfully');
 
                 log('Loading Age and Gender Estimation model...');
-                await faceapi.nets.ageGenderNet.loadFromUri(modelPath + 'age_gender_model-weights_manifest.json');
+                await faceapi.nets.ageGenderNet.loadFromUri(modelPath);
                 log('Age and Gender Estimation model loaded successfully');
 
                 log('All Face-API.js models loaded successfully');
 
-                log('Loading Tesseract.js...');
-                await Tesseract.load();
-                log('Tesseract.js loaded successfully');
+                log('Initializing Tesseract.js worker...');
+                await initializeTesseractWorker();
+                log('Tesseract.js worker initialized successfully');
             } catch (error) {
                 log('Error loading models: ' + error.message);
                 console.error('Error details:', error);
             }
+        }
+
+        async function initializeTesseractWorker() {
+            tesseractWorker = await Tesseract.createWorker();
+            await tesseractWorker.load();
+            await tesseractWorker.loadLanguage('eng');
+            await tesseractWorker.initialize('eng');
         }
 
         async function toggleCamera() {
@@ -575,7 +584,7 @@
                 mat.delete();
             }
 
-            requestAnimationFrame(detectAll);
+            setTimeout(detectAll, 100);  // Run at 10 FPS, adjustable
         }
 
         function detectStatisticalAnomalies(motions) {
@@ -736,14 +745,7 @@
 
         async function extractTextFromImage(imageData) {
             try {
-                const worker = Tesseract.createWorker({
-                    logger: m => console.log(m)
-                });
-                await worker.load();
-                await worker.loadLanguage('eng');
-                await worker.initialize('eng');
-                const { data: { text } } = await worker.recognize(imageData);
-                await worker.terminate();
+                const { data: { text } } = await tesseractWorker.recognize(imageData);
                 return text.trim();
             } catch (error) {
                 log('Error during text extraction: ' + error.message);
@@ -763,15 +765,7 @@
                     );
                     
                     try {
-                        const worker = Tesseract.createWorker({
-                            logger: m => console.log(m)
-                        });
-                        await worker.load();
-                        await worker.loadLanguage('eng');
-                        await worker.initialize('eng');
-                        const { data: { text } } = await worker.recognize(licensePlateRegion);
-                        await worker.terminate();
-                        
+                        const { data: { text } } = await tesseractWorker.recognize(licensePlateRegion);
                         const potentialPlateNumber = text.replace(/[^A-Z0-9]/g, '');
                         if (potentialPlateNumber.length >= 5) {
                             vehicleNumbers.push(potentialPlateNumber);
