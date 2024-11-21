@@ -141,25 +141,7 @@
     <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.0/dist/simple-statistics.min.js"></script>
     <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
-    <script src='https://unpkg.com/tesseract.js@v4.0.0/dist/tesseract.min.js'></script>
-    <script id="tesseractWorker" type="javascript/worker">
-        importScripts('https://unpkg.com/tesseract.js@v4.0.0/dist/worker.min.js');
-    
-        let worker;
-
-        self.onmessage = async function(e) {
-            const { image, lang } = e.data;
-            if (!worker) {
-                worker = await Tesseract.createWorker(lang);
-            }
-            try {
-                const { data: { text } } = await worker.recognize(image);
-                self.postMessage({ text, confidence: 100 }); // Tesseract v4 doesn't provide confidence, so we set it to 100
-            } catch (error) {
-                self.postMessage({ error: error.message });
-            }
-        }
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/ml5@latest/dist/ml5.min.js"></script>
     <script>
         let video, canvas, ctx, placeholderCanvas, placeholderCtx, objectDetectionModel, poseNetModel, stream;
         let isDetecting = false;
@@ -185,8 +167,7 @@
         const detectionResultsDiv = document.getElementById('detectionResults');
         const logDiv = document.getElementById('log');
 
-        let tesseractWorker;
-        let vehicleClassifier;
+        let ocrModel;
 
         function log(message) {
             console.log(message);
@@ -202,35 +183,25 @@
             objCountSpan.textContent = uniqueObjects.size;
         }
 
-        async function initTesseractWorker() {
-            const workerScript = document.getElementById('tesseractWorker').textContent;
-            const blob = new Blob([workerScript], { type: 'text/javascript' });
-            tesseractWorker = new Worker(URL.createObjectURL(blob));
-            tesseractWorker.onmessage = handleTesseractResult;
-            log('Tesseract.js worker initialized');
-        }
-
-        function handleTesseractResult(e) {
-            if (e.data.error) {
-                log('Tesseract.js error: ' + e.data.error);
-            } else {
-                const { text, confidence } = e.data;
-                const confidenceValue = confidence !== undefined ? confidence.toFixed(2) : 'N/A';
-                log(`License plate recognized: ${text} (confidence: ${confidenceValue})`);
-                updateNLPDescription(`License plate recognized: ${text}`);
+        async function initOCRModel() {
+            try {
+                ocrModel = await ml5.ocr('eng');
+                log('ml5.js OCR model initialized successfully');
+            } catch (error) {
+                log('Error initializing ml5.js OCR model: ' + error.message);
+                console.error('Error details:', error);
             }
         }
 
         async function recognizeLicensePlate(imageData) {
             try {
-                const canvas = document.createElement('canvas');
-                canvas.width = imageData.width;
-                canvas.height = imageData.height;
-                canvas.getContext('2d').putImageData(imageData, 0, 0);
-                const imageBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-                tesseractWorker.postMessage({ image: imageBlob, lang: 'eng' });
+                const results = await ocrModel.recognize(imageData);
+                const text = results.map(result => result.text).join(' ');
+                log(`License plate recognized: ${text}`);
+                updateNLPDescription(`License plate recognized: ${text}`);
             } catch (error) {
                 log('Error in license plate recognition: ' + error.message);
+                console.error('Error details:', error);
             }
         }
 
@@ -459,24 +430,13 @@
                 log('Age and Gender Estimation model loaded successfully');
 
                 log('All Face-API.js models loaded successfully');
-                log('Initializing Tesseract.js...');
-                await initTesseract();
-                log('Tesseract.js initialized successfully');
+                log('Initializing ml5.js OCR model...');
+                await initOCRModel();
             } catch (error) {
                 log('Error loading models: ' + error.message);
                 console.error('Error details:', error);
             }
         }
-
-        async function initTesseract() {
-            try {
-                await Tesseract.createWorker('eng');
-                log('Tesseract.js initialized successfully');
-            } catch (error) {
-                log('Error initializing Tesseract.js: ' + error.message);
-            }
-        }
-
 
         async function toggleCamera() {
             log('Toggling camera...');
@@ -664,8 +624,15 @@
                     updateNLPDescription(nlpDescription);
                 }
             } catch (error) {
-                log('Error during detection: ' + error.message);
-                console.error('Error details:', error);
+                log(`Error during detection: ${error.name} - ${error.message}`);
+                console.error('Error stack:', error.stack);
+                if (error instanceof TypeError) {
+                    log('TypeError detected. Check if all required models and APIs are properly loaded.');
+                } else if (error instanceof ReferenceError) {
+                    log('ReferenceError detected. Check for undefined variables or functions.');
+                } else {
+                    log('Unknown error type. Check the console for more details.');
+                }
             } finally {
                 mat.delete();
             }
@@ -674,70 +641,91 @@
         }
 
         function detectStatisticalAnomalies(motions) {
-            const anomalies = [];
-            motions.forEach(motion => {
-                if (!speedHistory[motion.object]) {
-                    speedHistory[motion.object] = [];
-                }
-                speedHistory[motion.object].push(motion.speed);
-
-                // Keep only the last 50 speed records
-                if (speedHistory[motion.object].length > 50) {
-                    speedHistory[motion.object].shift();
-                }
-
-                if (speedHistory[motion.object].length > 10) {
-                    const speeds = speedHistory[motion.object];
-                    const mean = ss.mean(speeds);
-                    const stdDev = ss.standardDeviation(speeds);
-                    const zScore = Math.abs((motion.speed - mean) / stdDev);
-
-                    if (zScore > 2) {
-                        anomalies.push(`Unusual ${motion.object} speed`);
+            if (!arguments || arguments.length === 0) {
+                throw new Error(`${arguments.callee.name} called with no arguments`);
+            }
+            try {
+                const anomalies = [];
+                motions.forEach(motion => {
+                    if (!speedHistory[motion.object]) {
+                        speedHistory[motion.object] = [];
                     }
-                }
-            });
+                    speedHistory[motion.object].push(motion.speed);
 
-            return anomalies;
+                    // Keep only the last 50 speed records
+                    if (speedHistory[motion.object].length > 50) {
+                        speedHistory[motion.object].shift();
+                    }
+
+                    if (speedHistory[motion.object].length > 10) {
+                        const speeds = speedHistory[motion.object];
+                        const mean = ss.mean(speeds);
+                        const stdDev = ss.standardDeviation(speeds);
+                        const zScore = Math.abs((motion.speed - mean) / stdDev);
+
+                        if (zScore > 2) {
+                            anomalies.push(`Unusual ${motion.object} speed`);
+                        }
+                    }
+                });
+
+                return anomalies;
+            } catch (error) {
+                log(`Error in ${arguments.callee.name}: ${error.name} - ${error.message}`);
+                console.error(`Error stack for ${arguments.callee.name}:`, error.stack);
+                throw error;
+            }
         }
 
         function detectMotion(mat, objects) {
-            const motions = [];
-            const prevFrame = new cv.Mat();
-            cv.cvtColor(mat, prevFrame, cv.COLOR_RGBA2GRAY);
-
-            if (motionHistory.length > 0) {
-                const prevMat = motionHistory[motionHistory.length - 1];
-                const flow = new cv.Mat();
-                cv.calcOpticalFlowFarneback(prevMat, prevFrame, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
-
-                objects.forEach(obj => {
-                    const [x, y, width, height] = obj.bbox.map(Math.round);
-                    const roi = flow.roi(new cv.Rect(x, y, width, height));
-                    const meanFlow = cv.mean(roi);
-                    const speed = Math.sqrt(meanFlow[0] * meanFlow[0] + meanFlow[1] * meanFlow[1]);
-
-                    let behavior = 'standing';
-                    if (speed > 5) behavior = 'walking';
-                    if (speed > 10) behavior = 'running';
-
-                    motions.push({ object: obj.class, behavior, speed });
-
-                    roi.delete();
-                });
-
-                flow.delete();
+            if (!arguments || arguments.length === 0) {
+                throw new Error(`${arguments.callee.name} called with no arguments`);
             }
+            try {
+                const motions = [];
+                const prevFrame = new cv.Mat();
+                cv.cvtColor(mat, prevFrame, cv.COLOR_RGBA2GRAY);
 
-            motionHistory.push(prevFrame);
-            if (motionHistory.length > 2) {
-                motionHistory.shift().delete();
+                if (motionHistory.length > 0) {
+                    const prevMat = motionHistory[motionHistory.length - 1];
+                    const flow = new cv.Mat();
+                    cv.calcOpticalFlowFarneback(prevMat, prevFrame, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
+
+                    objects.forEach(obj => {
+                        const [x, y, width, height] = obj.bbox.map(Math.round);
+                        const roi = flow.roi(new cv.Rect(x, y, width, height));
+                        const meanFlow = cv.mean(roi);
+                        const speed = Math.sqrt(meanFlow[0] * meanFlow[0] + meanFlow[1] * meanFlow[1]);
+
+                        let behavior = 'standing';
+                        if (speed > 5) behavior = 'walking';
+                        if (speed > 10) behavior = 'running';
+
+                        motions.push({ object: obj.class, behavior, speed });
+
+                        roi.delete();
+                    });
+
+                    flow.delete();
+                }
+
+                motionHistory.push(prevFrame);
+                if (motionHistory.length > 2) {
+                    motionHistory.shift().delete();
+                }
+
+                return motions;
+            } catch (error) {
+                log(`Error in ${arguments.callee.name}: ${error.name} - ${error.message}`);
+                console.error(`Error stack for ${arguments.callee.name}:`, error.stack);
+                throw error;
             }
-
-            return motions;
         }
 
         async function detectFaces(inputVideo) {
+            if (!arguments || arguments.length === 0) {
+                throw new Error(`${arguments.callee.name} called with no arguments`);
+            }
             try {
                 const detections = await faceapi.detectAllFaces(inputVideo, new faceapi.SsdMobilenetv1Options())
                     .withFaceLandmarks()
@@ -746,58 +734,68 @@
 
                 return detections;
             } catch (error) {
-                log('Error during face detection: ' + error.message);
+                log(`Error during face detection: ${error.name} - ${error.message}`);
+                console.error(`Error stack for ${arguments.callee.name}:`, error.stack);
                 return [];
             }
         }
 
         function analyzeBehavior(poses) {
-            return poses.map((pose, index) => {
-                const keypoints = pose.keypoints;
-                const nose = keypoints.find(kp => kp.part === 'nose');
-                const leftShoulder = keypoints.find(kp => kp.part === 'leftShoulder');
-                const rightShoulder = keypoints.find(kp => kp.part === 'rightShoulder');
-                const leftHip = keypoints.find(kp => kp.part === 'leftHip');
-                const rightHip = keypoints.find(kp => kp.part === 'rightHip');
-                const leftKnee = keypoints.find(kp => kp.part === 'leftKnee');
-                const rightKnee = keypoints.find(kp => kp.part === 'rightKnee');
+            if (!arguments || arguments.length === 0) {
+                throw new Error(`${arguments.callee.name} called with no arguments`);
+            }
+            try {
+                return poses.map((pose, index) => {
+                    const keypoints = pose.keypoints;
+                    const nose = keypoints.find(kp => kp.part === 'nose');
+                    const leftShoulder = keypoints.find(kp => kp.part === 'leftShoulder');
+                    const rightShoulder = keypoints.find(kp => kp.part === 'rightShoulder');
+                    const leftHip = keypoints.find(kp => kp.part === 'leftHip');
+                    const rightHip = keypoints.find(kp => kp.part === 'rightHip');
+                    const leftKnee = keypoints.find(kp => kp.part === 'leftKnee');
+                    const rightKnee = keypoints.find(kp => kp.part === 'rightKnee');
 
-                if (!nose || !leftShoulder || !rightShoulder || !leftHip || !rightHip || !leftKnee || !rightKnee) {
-                    return 'unknown';
-                }
+                    if (!nose || !leftShoulder || !rightShoulder || !leftHip || !rightHip || !leftKnee || !rightKnee) {
+                        return 'unknown';
+                    }
 
-                const verticalSpeed = calculateVerticalSpeed(nose, index);
-                const hipKneeAngle = calculateAngle(leftHip, leftKnee, rightKnee);
+                    const verticalSpeed = calculateVerticalSpeed(nose, index);
+                    const hipKneeAngle = calculateAngle(leftHip, leftKnee, rightKnee);
 
-                let behavior = 'standing';
+                    let behavior = 'standing';
 
-                if (verticalSpeed > 20) {
-                    behavior = 'jumping';
-                } else if (verticalSpeed > 10) {
-                    behavior = 'running';
-                } else if (verticalSpeed > 2) {
-                    behavior = 'walking';
-                } else if (hipKneeAngle < 90) {
-                    behavior = 'sitting';
-                }
+                    if (verticalSpeed > 20) {
+                        behavior = 'jumping';
+                    } else if (verticalSpeed > 10) {
+                        behavior = 'running';
+                    } else if (verticalSpeed > 2) {
+                        behavior = 'walking';
+                    } else if (hipKneeAngle < 90) {
+                        behavior = 'sitting';
+                    }
 
-                // Update behavior history
-                if (!behaviorHistory[index]) {
-                    behaviorHistory[index] = [];
-                }
-                behaviorHistory[index].push(behavior);
-                if (behaviorHistory[index].length > 10) {
-                    behaviorHistory[index].shift();
-                }
-                
-                                // Smooth out behavior classification
-                const recentBehaviors = behaviorHistory[index];
-                const dominantBehavior = recentBehaviors.reduce((a, b) =>
-                    recentBehaviors.filter(v => v === a).length >= recentBehaviors.filter(v => v === b).length ? a : b
-                );
+                    // Update behavior history
+                    if (!behaviorHistory[index]) {
+                        behaviorHistory[index] = [];
+                    }
+                    behaviorHistory[index].push(behavior);
+                    if (behaviorHistory[index].length > 10) {
+                        behaviorHistory[index].shift();
+                    }
 
-                return dominantBehavior;
-            });
+                    // Smooth out behavior classification
+                    const recentBehaviors = behaviorHistory[index];
+                                        const dominantBehavior = recentBehaviors.reduce((a, b) =>
+                        recentBehaviors.filter(v => v === a).length >= recentBehaviors.filter(v => v === b).length ? a : b
+                    );
+
+                    return dominantBehavior;
+                });
+            } catch (error) {
+                log(`Error in ${arguments.callee.name}: ${error.name} - ${error.message}`);
+                console.error(`Error stack for ${arguments.callee.name}:`, error.stack);
+                throw error;
+            }
         }
 
         function calculateVerticalSpeed(keypoint, personIndex) {
@@ -867,8 +865,8 @@
                 try {
                     return await func.apply(this, args);
                 } catch (error) {
-                    log(`Error in ${func.name}: ${error.message}`);
-                    console.error(`Error details for ${func.name}:`, error);
+                    log(`Error in ${func.name}: ${error.name} - ${error.message}`);
+                    console.error(`Error stack for ${func.name}:`, error.stack);
                 }
             };
         }
@@ -890,6 +888,7 @@
             }
 
             function detectStatisticalAnomalies(motions) {
+                // Implementation of detectStatisticalAnomalies function
                 const anomalies = [];
                 const speedHistory = {};
                 motions.forEach(motion => {
@@ -911,7 +910,7 @@
                         const zScore = Math.abs((motion.speed - mean) / stdDev);
 
                         if (zScore > 2) {
-                            anomalies.push(\`Unusual \${motion.object} speed\`);
+                            anomalies.push(`Unusual ${motion.object} speed`);
                         }
                     }
                 });
@@ -937,4 +936,4 @@
     </script>
 </body>
 </html>
-
+        
