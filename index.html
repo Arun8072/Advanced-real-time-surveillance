@@ -61,11 +61,6 @@
             background-color: #45a049;
         }
 
-        button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
-
         #total_obj, #detectionResults, #log, #nlpDescription {
             margin-top: 20px;
             padding: 10px;
@@ -124,9 +119,9 @@
             <canvas id="placeholder-canvas"></canvas>
         </div>
         <div class="controls">
-            <button id="toggleCamera" disabled>Start Camera</button>
-            <button id="switchCamera" disabled>Switch Camera</button>
-            <button id="startDetection" disabled>Start Detection</button>
+            <button id="toggleCamera">Start Camera</button>
+            <button id="switchCamera">Switch Camera</button>
+            <button id="startDetection">Start Detection</button>
         </div>
         <div id="total_obj">Total Detected <span id="obj_count">0</span> objects</div>
         <div id="detectionResults"></div>
@@ -383,11 +378,9 @@
 
                 log('All Face-API.js models loaded successfully');
 
-                log('Initializing Tesseract.js worker...');
+                log('Initializing Tesseract worker...');
                 await initializeTesseractWorker();
                 log('Tesseract.js worker initialized successfully');
-
-                startDetectionButton.disabled = false;
             } catch (error) {
                 log('Error loading models: ' + error.message);
                 console.error('Error details:', error);
@@ -395,6 +388,7 @@
         }
 
         async function initializeTesseractWorker() {
+            log('Initializing Tesseract worker...');
             tesseractWorker = await Tesseract.createWorker();
             await tesseractWorker.load();
             await tesseractWorker.loadLanguage('eng');
@@ -412,7 +406,11 @@
         async function startCamera() {
             try {
                 const constraints = {
-                    video: { facingMode: currentCameraFacingMode }
+                    video: {
+                        facingMode: currentCameraFacingMode,
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
                 };
 
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -462,11 +460,13 @@
         }
 
         async function startDetection() {
-            if (!objectDetectionModel || !poseNetModel || !faceapi.nets.ssdMobilenetv1.params) {
+            if (!objectDetectionModel || !poseNetModel) {
                 await loadModels();
             }
+
             isDetecting = !isDetecting;
             startDetectionButton.textContent = isDetecting ? 'Stop Detection' : 'Start Detection';
+
             if (isDetecting) {
                 log('Object, pose, face, behavior, text, and statistical anomaly detection started');
                 detectAll();
@@ -478,13 +478,12 @@
         async function detectAll() {
             if (!isDetecting) return;
 
-            if (!video || !ctx) {
-                log('Video or canvas context missing');
-                return;
-            }
-
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            if (!imageData || !imageData.data.length) {
+                log('Invalid image data from canvas');
+                return;
+            }
             const mat = cv.matFromImageData(imageData);
 
             try {
@@ -708,7 +707,7 @@
                     behaviorHistory[index].shift();
                 }
 
-                                const recentBehaviors = behaviorHistory[index];
+                const recentBehaviors = behaviorHistory[index];
                 const dominantBehavior = recentBehaviors.reduce((a, b) =>
                     recentBehaviors.filter(v => v === a).length >= recentBehaviors.filter(v => v === b).length ? a : b
                 );
@@ -750,11 +749,18 @@
         }
 
         async function extractTextFromImage(imageData) {
+            if (!imageData || !imageData.data || !imageData.data.length) {
+                log('Invalid image data for text extraction');
+                return '';
+            }
             try {
+                log('Starting text extraction...');
                 const { data: { text } } = await tesseractWorker.recognize(imageData);
+                log('Text extraction completed');
                 return text.trim();
             } catch (error) {
-                log('Error during text extraction: ' + error.message);
+                log(`Tesseract error: ${error.message}`);
+                console.error('Text extraction error details:', error);
                 return '';
             }
         }
@@ -777,7 +783,8 @@
                             vehicleNumbers.push(potentialPlateNumber);
                         }
                     } catch (error) {
-                        log('Error during vehicle number detection: ' + error.message);
+                        log(`Error during vehicle number detection: ${error.message}`);
+                        console.error('Vehicle number detection error details:', error);
                     }
                 }
             }
@@ -794,6 +801,9 @@
         switchCameraButton.addEventListener('click', switchCamera);
         startDetectionButton.addEventListener('click', startDetection);
 
+        switchCameraButton.disabled = true;
+        startDetectionButton.disabled = true;
+
         document.querySelectorAll('.expand-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const parentDiv = this.closest('.log-container');
@@ -805,7 +815,6 @@
         function onOpenCvReady() {
             log('OpenCV.js is ready');
             loadModels();
-            toggleCameraButton.disabled = false;
         }
     </script>
 </body>
