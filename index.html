@@ -61,6 +61,11 @@
             background-color: #45a049;
         }
 
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
         #total_obj, #detectionResults, #log, #nlpDescription {
             margin-top: 20px;
             padding: 10px;
@@ -119,9 +124,9 @@
             <canvas id="placeholder-canvas"></canvas>
         </div>
         <div class="controls">
-            <button id="toggleCamera">Start Camera</button>
-            <button id="switchCamera">Switch Camera</button>
-            <button id="startDetection">Start Detection</button>
+            <button id="toggleCamera" disabled>Start Camera</button>
+            <button id="switchCamera" disabled>Switch Camera</button>
+            <button id="startDetection" disabled>Start Detection</button>
         </div>
         <div id="total_obj">Total Detected <span id="obj_count">0</span> objects</div>
         <div id="detectionResults"></div>
@@ -381,6 +386,8 @@
                 log('Initializing Tesseract.js worker...');
                 await initializeTesseractWorker();
                 log('Tesseract.js worker initialized successfully');
+
+                startDetectionButton.disabled = false;
             } catch (error) {
                 log('Error loading models: ' + error.message);
                 console.error('Error details:', error);
@@ -405,11 +412,7 @@
         async function startCamera() {
             try {
                 const constraints = {
-                    video: {
-                        facingMode: currentCameraFacingMode,
-                        width: { ideal: 640 },
-                        height: { ideal: 480 }
-                    }
+                    video: { facingMode: currentCameraFacingMode }
                 };
 
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -459,13 +462,11 @@
         }
 
         async function startDetection() {
-            if (!objectDetectionModel || !poseNetModel) {
+            if (!objectDetectionModel || !poseNetModel || !faceapi.nets.ssdMobilenetv1.params) {
                 await loadModels();
             }
-
             isDetecting = !isDetecting;
             startDetectionButton.textContent = isDetecting ? 'Stop Detection' : 'Start Detection';
-
             if (isDetecting) {
                 log('Object, pose, face, behavior, text, and statistical anomaly detection started');
                 detectAll();
@@ -476,6 +477,11 @@
 
         async function detectAll() {
             if (!isDetecting) return;
+
+            if (!video || !ctx) {
+                log('Video or canvas context missing');
+                return;
+            }
 
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -702,7 +708,7 @@
                     behaviorHistory[index].shift();
                 }
 
-                const recentBehaviors = behaviorHistory[index];
+                                const recentBehaviors = behaviorHistory[index];
                 const dominantBehavior = recentBehaviors.reduce((a, b) =>
                     recentBehaviors.filter(v => v === a).length >= recentBehaviors.filter(v => v === b).length ? a : b
                 );
@@ -788,9 +794,6 @@
         switchCameraButton.addEventListener('click', switchCamera);
         startDetectionButton.addEventListener('click', startDetection);
 
-        switchCameraButton.disabled = true;
-        startDetectionButton.disabled = true;
-
         document.querySelectorAll('.expand-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const parentDiv = this.closest('.log-container');
@@ -802,6 +805,7 @@
         function onOpenCvReady() {
             log('OpenCV.js is ready');
             loadModels();
+            toggleCameraButton.disabled = false;
         }
     </script>
 </body>
