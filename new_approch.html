@@ -12,16 +12,15 @@
     <!-- TensorFlow.js and Models -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
     <!-- Tesseract.js for OCR -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2"></script>
-    <!-- Simple Styles -->
     <style>
         body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f0f0; margin: 0; }
         #root { text-align: center; width: 100%; max-width: 800px; }
         video, canvas { width: 100%; max-width: 640px; margin-top: 10px; }
         button { margin: 5px; padding: 10px; font-size: 16px; cursor: pointer; }
-        .log-container { text-align: left; background-color: #fff; padding: 10px; margin-top: 10px; max-height: 150px; overflow-y: scroll; border: 1px solid #ccc; }
+        .log-container, .description-container { text-align: left; background-color: #fff; padding: 10px; margin-top: 10px; max-height: 150px; overflow-y: scroll; border: 1px solid #ccc; }
+        h2 { margin: 0; }
     </style>
 </head>
 <body>
@@ -30,15 +29,27 @@
     <script type="text/babel">
         function App() {
             const [videoStream, setVideoStream] = React.useState(null);
+            const [facingMode, setFacingMode] = React.useState('user'); // Default: front camera
+            const [detectionActive, setDetectionActive] = React.useState(false);
             const [objectCount, setObjectCount] = React.useState(0);
             const [logs, setLogs] = React.useState([]);
+            const [description, setDescription] = React.useState("");
             const videoRef = React.useRef(null);
             const canvasRef = React.useRef(null);
+            let detectionModel = null;
 
-            // Start Camera
+            // Start or Stop Camera
+            const toggleCamera = async () => {
+                if (videoStream) {
+                    stopCamera();
+                } else {
+                    await startCamera();
+                }
+            };
+
             const startCamera = async () => {
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode } });
                     setVideoStream(stream);
                     videoRef.current.srcObject = stream;
                     logEvent("Camera started successfully");
@@ -47,30 +58,44 @@
                 }
             };
 
-            // Stop Camera
             const stopCamera = () => {
                 if (videoStream) {
                     videoStream.getTracks().forEach(track => track.stop());
                     setVideoStream(null);
+                    setDetectionActive(false);
                     logEvent("Camera stopped.");
                 }
             };
 
-            // Object Detection
-            const startDetection = async () => {
-                const model = await cocoSsd.load();
-                logEvent("Object detection model loaded successfully");
-                detectFrame(model);
+            // Switch Camera
+            const switchCamera = () => {
+                setFacingMode(prevMode => (prevMode === 'user' ? 'environment' : 'user'));
+                if (videoStream) {
+                    stopCamera();
+                    setTimeout(startCamera, 1000); // Restart camera after switching
+                }
             };
 
-            const detectFrame = async (model) => {
-                if (videoRef.current.readyState === 4) {
-                    const predictions = await model.detect(videoRef.current);
-                    setObjectCount(prev => prev + predictions.length);
-                    drawPredictions(predictions);
-                    logEvent(`Detected ${predictions.length} objects`);
-                    requestAnimationFrame(() => detectFrame(model));
+            // Toggle Detection
+            const toggleDetection = async () => {
+                if (!detectionActive) {
+                    if (!detectionModel) detectionModel = await cocoSsd.load();
+                    logEvent("Object detection model loaded.");
+                    setDetectionActive(true);
+                    detectFrame();
+                } else {
+                    setDetectionActive(false);
+                    logEvent("Object detection stopped.");
                 }
+            };
+
+            const detectFrame = async () => {
+                if (!detectionActive || !videoRef.current) return;
+                const predictions = await detectionModel.detect(videoRef.current);
+                setObjectCount(prev => prev + predictions.length);
+                drawPredictions(predictions);
+                updateDescription(predictions);
+                requestAnimationFrame(detectFrame);
             };
 
             const drawPredictions = (predictions) => {
@@ -85,14 +110,20 @@
                     ctx.rect(...prediction.bbox);
                     ctx.lineWidth = 2;
                     ctx.strokeStyle = 'red';
-                    ctx.fillStyle = 'red';
                     ctx.stroke();
+                    ctx.fillStyle = 'red';
                     ctx.fillText(
-                        prediction.class + ' - ' + Math.round(prediction.score * 100) / 100,
+                        `${prediction.class} - ${Math.round(prediction.score * 100) / 100}`,
                         prediction.bbox[0],
                         prediction.bbox[1] > 10 ? prediction.bbox[1] - 5 : 10
                     );
                 });
+            };
+
+            // Update Natural Language Description
+            const updateDescription = (predictions) => {
+                const detectedObjects = predictions.map(p => p.class).join(", ");
+                setDescription(`Detected objects: ${detectedObjects || "None"}`);
             };
 
             // Logging system
@@ -104,13 +135,18 @@
                 <div>
                     <h1>Real-Time Object Detection</h1>
                     <video ref={videoRef} autoPlay playsInline muted width="640" height="480"></video>
-                    <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0 }}></canvas>
+                    <canvas ref={canvasRef}></canvas>
                     <div>
-                        <button onClick={startCamera} disabled={videoStream}>Start Camera</button>
-                        <button onClick={stopCamera} disabled={!videoStream}>Stop Camera</button>
-                        <button onClick={startDetection} disabled={!videoStream}>Start Detection</button>
+                        <button onClick={toggleCamera}>{videoStream ? 'Stop Camera' : 'Start Camera'}</button>
+                        <button onClick={switchCamera} disabled={!videoStream}>Switch Camera</button>
+                        <button onClick={toggleDetection} disabled={!videoStream}>
+                            {detectionActive ? 'Stop Detection' : 'Start Detection'}
+                        </button>
                     </div>
                     <p>Total Objects Detected: {objectCount}</p>
+                    <h2>Description:</h2>
+                    <div className="description-container">{description}</div>
+                    <h2>Logs:</h2>
                     <div className="log-container">
                         {logs.map((log, index) => <p key={index}>{log}</p>)}
                     </div>
