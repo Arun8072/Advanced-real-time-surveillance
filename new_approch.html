@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Object Detection</title>
+    <!-- React and ReactDOM CDN -->
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <!-- Babel for JSX Compilation -->
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <!-- TensorFlow.js and Models -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <!-- Tesseract.js for OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2"></script>
+    <!-- Simple Styles -->
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f0f0; margin: 0; }
+        #root { text-align: center; width: 100%; max-width: 800px; }
+        video, canvas { width: 100%; max-width: 640px; margin-top: 10px; }
+        button { margin: 5px; padding: 10px; font-size: 16px; cursor: pointer; }
+        .log-container { text-align: left; background-color: #fff; padding: 10px; margin-top: 10px; max-height: 150px; overflow-y: scroll; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        function App() {
+            const [videoStream, setVideoStream] = React.useState(null);
+            const [objectCount, setObjectCount] = React.useState(0);
+            const [logs, setLogs] = React.useState([]);
+            const videoRef = React.useRef(null);
+            const canvasRef = React.useRef(null);
+
+            // Start Camera
+            const startCamera = async () => {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    setVideoStream(stream);
+                    videoRef.current.srcObject = stream;
+                    logEvent("Camera started successfully");
+                } catch (error) {
+                    logEvent("Error starting camera: " + error.message);
+                }
+            };
+
+            // Stop Camera
+            const stopCamera = () => {
+                if (videoStream) {
+                    videoStream.getTracks().forEach(track => track.stop());
+                    setVideoStream(null);
+                    logEvent("Camera stopped.");
+                }
+            };
+
+            // Object Detection
+            const startDetection = async () => {
+                const model = await cocoSsd.load();
+                logEvent("Object detection model loaded successfully");
+                detectFrame(model);
+            };
+
+            const detectFrame = async (model) => {
+                if (videoRef.current.readyState === 4) {
+                    const predictions = await model.detect(videoRef.current);
+                    setObjectCount(prev => prev + predictions.length);
+                    drawPredictions(predictions);
+                    logEvent(`Detected ${predictions.length} objects`);
+                    requestAnimationFrame(() => detectFrame(model));
+                }
+            };
+
+            const drawPredictions = (predictions) => {
+                const ctx = canvasRef.current.getContext('2d');
+                canvasRef.current.width = videoRef.current.videoWidth;
+                canvasRef.current.height = videoRef.current.videoHeight;
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.drawImage(videoRef.current, 0, 0);
+
+                predictions.forEach(prediction => {
+                    ctx.beginPath();
+                    ctx.rect(...prediction.bbox);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = 'red';
+                    ctx.fillStyle = 'red';
+                    ctx.stroke();
+                    ctx.fillText(
+                        prediction.class + ' - ' + Math.round(prediction.score * 100) / 100,
+                        prediction.bbox[0],
+                        prediction.bbox[1] > 10 ? prediction.bbox[1] - 5 : 10
+                    );
+                });
+            };
+
+            // Logging system
+            const logEvent = (message) => {
+                setLogs(prevLogs => [...prevLogs, message]);
+            };
+
+            return (
+                <div>
+                    <h1>Real-Time Object Detection</h1>
+                    <video ref={videoRef} autoPlay playsInline muted width="640" height="480"></video>
+                    <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0 }}></canvas>
+                    <div>
+                        <button onClick={startCamera} disabled={videoStream}>Start Camera</button>
+                        <button onClick={stopCamera} disabled={!videoStream}>Stop Camera</button>
+                        <button onClick={startDetection} disabled={!videoStream}>Start Detection</button>
+                    </div>
+                    <p>Total Objects Detected: {objectCount}</p>
+                    <div className="log-container">
+                        {logs.map((log, index) => <p key={index}>{log}</p>)}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
