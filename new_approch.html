@@ -1,105 +1,222 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Object Detection App</title>
-  <style>
-    body { font-family: Arial, sans-serif; text-align: center; }
-    #video { width: 100%; max-width: 600px; }
-    .controls button { margin: 5px; }
-    .output { margin-top: 20px; }
-    #face-display { display: flex; justify-content: center; flex-wrap: wrap; }
-    .face-box { border: 2px solid blue; margin: 5px; }
-  </style>
-  <!-- React and ReactDOM CDN -->
-  <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Object Detection</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@google/generative-ai@0.1.0/dist/generative-ai.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        video { width: 100%; max-width: 640px; }
+        canvas { position: absolute; top: 0; left: 0; }
+        .controls { margin-top: 20px; }
+        button { margin-right: 10px; }
+        .display-area { margin-top: 20px; border: 1px solid #ccc; padding: 10px; }
+    </style>
 </head>
 <body>
-  <div id="root"></div>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
 
-  <!-- TensorFlow.js and PoseNet CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet@latest"></script>
+        function App() {
+            const [isCameraOn, setIsCameraOn] = useState(false);
+            const [isDetecting, setIsDetecting] = useState(false);
+            const [objectCount, setObjectCount] = useState(0);
+            const [description, setDescription] = useState('');
+            const [logs, setLogs] = useState([]);
+            const videoRef = useRef(null);
+            const canvasRef = useRef(null);
+            const streamRef = useRef(null);
+            const genAIRef = useRef(null);
+            const modelRef = useRef(null);
 
-  <!-- Tesseract.js for OCR -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@latest"></script>
+            useEffect(() => {
+                // Initialize Gemini API
+                const API_KEY = 'AIzaSyCnPkqvGUFy9ByKpCVFtNkhHJvKqIzEwAo'; // Replace with your actual API key
+                genAIRef.current = new google.generative.GenerativeAI(API_KEY);
+                addLog('Gemini API initialized');
 
-  <script type="text/babel">
-    function App() {
-      const [cameraOn, setCameraOn] = React.useState(false);
-      const [objectCount, setObjectCount] = React.useState(0);
-      const [description, setDescription] = React.useState("");
-      const [log, setLog] = React.useState([]);
-      const videoRef = React.useRef(null);
+                // Load PoseNet model
+                loadPoseNetModel();
 
-      // Start/stop the camera
-      const toggleCamera = async () => {
-        if (!cameraOn) {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          videoRef.current.srcObject = stream;
-          setCameraOn(true);
-          addLog("Camera started");
-        } else {
-          const stream = videoRef.current.srcObject;
-          stream.getTracks().forEach(track => track.stop());
-          videoRef.current.srcObject = null;
-          setCameraOn(false);
-          addLog("Camera stopped");
+                return () => {
+                    if (streamRef.current) {
+                        const tracks = streamRef.current.getTracks();
+                        tracks.forEach(track => track.stop());
+                    }
+                };
+            }, []);
+
+            const loadPoseNetModel = async () => {
+                try {
+                    modelRef.current = await posenet.load();
+                    addLog('PoseNet model loaded');
+                } catch (error) {
+                    addLog('Error loading PoseNet model: ' + error.message);
+                }
+            };
+
+            const addLog = (message) => {
+                setLogs(prevLogs => [...prevLogs, `[${new Date().toLocaleTimeString()}] ${message}`]);
+            };
+
+            const startCamera = async () => {
+                try {
+                    streamRef.current = await navigator.mediaDevices.getUserMedia({ video: true });
+                    videoRef.current.srcObject = streamRef.current;
+                    setIsCameraOn(true);
+                    addLog('Camera started');
+                } catch (error) {
+                    addLog('Error starting camera: ' + error.message);
+                }
+            };
+
+            const stopCamera = () => {
+                if (streamRef.current) {
+                    const tracks = streamRef.current.getTracks();
+                    tracks.forEach(track => track.stop());
+                    videoRef.current.srcObject = null;
+                    setIsCameraOn(false);
+                    setIsDetecting(false);
+                    addLog('Camera stopped');
+                }
+            };
+
+            const toggleDetection = () => {
+                setIsDetecting(!isDetecting);
+                if (!isDetecting) {
+                    addLog('Detection started');
+                    detectObjects();
+                } else {
+                    addLog('Detection stopped');
+                }
+            };
+
+            const detectObjects = async () => {
+                if (!isDetecting || !videoRef.current) return;
+
+                const video = videoRef.current;
+                const canvas = canvasRef.current;
+                const ctx = canvas.getContext('2d');
+
+                // Capture video frame
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = canvas.toDataURL('image/jpeg');
+
+                try {
+                    // Use Gemini API for object detection
+                    const model = genAIRef.current.getGenerativeModel({ model: "gemini-pro-vision" });
+                    const result = await model.generateContent([
+                        "Analyze this image and describe all objects, people, and activities you see. Also, estimate the number of distinct objects.",
+                        { inlineData: { data: imageData, mimeType: "image/jpeg" } }
+                    ]);
+                    const response = await result.response;
+                    const text = response.text();
+                    
+                    setDescription(text);
+                    const objectCountMatch = text.match(/(\d+)\s+distinct objects/i);
+                    if (objectCountMatch) {
+                        setObjectCount(prevCount => prevCount + parseInt(objectCountMatch[1]));
+                    }
+
+                    // Perform pose estimation
+                    const poses = await modelRef.current.estimateMultiplePoses(video);
+                    analyzePoses(poses);
+
+                    // Continue detection loop
+                    requestAnimationFrame(detectObjects);
+                } catch (error) {
+                    addLog('Error in detection: ' + error.message);
+                }
+            };
+
+            const analyzePoses = (poses) => {
+                // Implement pose analysis logic here
+                // This is a simplified example
+                poses.forEach(pose => {
+                    const keypoints = pose.keypoints;
+                    const leftShoulder = keypoints.find(k => k.part === 'leftShoulder');
+                    const rightShoulder = keypoints.find(k => k.part === 'rightShoulder');
+                    if (leftShoulder && rightShoulder) {
+                        if (Math.abs(leftShoulder.position.y - rightShoulder.position.y) > 100) {
+                            addLog('Person detected in tilted position');
+                        }
+                    }
+                });
+            };
+
+            const extractText = async () => {
+                if (!videoRef.current) return;
+
+                const video = videoRef.current;
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = canvas.toDataURL('image/jpeg');
+
+                try {
+                    const model = genAIRef.current.getGenerativeModel({ model: "gemini-pro-vision" });
+                    const result = await model.generateContent([
+                        "Extract and list all text visible in this image, including any numbers or license plates.",
+                        { inlineData: { data: imageData, mimeType: "image/jpeg" } }
+                    ]);
+                    const response = await result.response;
+                    const text = response.text();
+                    setDescription(prevDescription => prevDescription + '\n\nExtracted Text:\n' + text);
+                    addLog('Text extracted from image');
+                } catch (error) {
+                    addLog('Error extracting text: ' + error.message);
+                }
+            };
+
+            return (
+                <div className="container">
+                    <h1>Advanced Object Detection</h1>
+                    <div style={{ position: 'relative' }}>
+                        <video ref={videoRef} autoPlay playsInline />
+                        <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0 }} />
+                    </div>
+                    <div className="controls">
+                        <button onClick={isCameraOn ? stopCamera : startCamera}>
+                            {isCameraOn ? 'Stop Camera' : 'Start Camera'}
+                        </button>
+                        <button onClick={toggleDetection} disabled={!isCameraOn}>
+                            {isDetecting ? 'Stop Detection' : 'Start Detection'}
+                        </button>
+                        <button onClick={extractText} disabled={!isCameraOn}>
+                            Extract Text
+                        </button>
+                    </div>
+                    <div className="display-area">
+                        <h3>Total <span id="obj-count">{objectCount}</span> Objects detected</h3>
+                    </div>
+                    <div className="display-area">
+                        <h3>Description</h3>
+                        <p>{description}</p>
+                    </div>
+                    <div className="display-area">
+                        <h3>Logs</h3>
+                        <ul>
+                            {logs.map((log, index) => (
+                                <li key={index}>{log}</li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+            );
         }
-      };
 
-      const addLog = (message) => {
-        setLog((prevLog) => [...prevLog, message]);
-      };
-
-      // Placeholder function for object detection
-      const startDetection = () => {
-        if (!cameraOn) return;
-        addLog("Object detection started");
-        // Placeholder: Integrate real object detection models here
-        setObjectCount((prevCount) => prevCount + 1);
-        setDescription("Detected object: Example Object");
-      };
-
-      // Placeholder function for text extraction
-      const extractText = async () => {
-        if (!cameraOn) return;
-        addLog("Text extraction started");
-        // Use Tesseract.js for OCR
-        const canvas = document.createElement('canvas');
-        canvas.width = videoRef.current.videoWidth;
-        canvas.height = videoRef.current.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
-        setDescription(`Extracted Text: ${text}`);
-      };
-
-      return (
-        <div>
-          <h1>AI Object Detection App</h1>
-          <video id="video" ref={videoRef} autoPlay muted></video>
-          <div className="controls">
-            <button onClick={toggleCamera}>{cameraOn ? "Stop Camera" : "Start Camera"}</button>
-            <button onClick={startDetection} disabled={!cameraOn}>Start Detection</button>
-            <button onClick={extractText} disabled={!cameraOn}>Extract Text</button>
-          </div>
-          <div className="output">
-            <p>Total Objects Detected: <span id="obj-count">{objectCount}</span></p>
-            <p>Description: {description}</p>
-            <p>Logs:</p>
-            <ul>
-              {log.map((entry, index) => <li key={index}>{entry}</li>)}
-            </ul>
-          </div>
-          <div id="face-display"></div>
-        </div>
-      );
-    }
-
-    ReactDOM.render(<App />, document.getElementById('root'));
-  </script>
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
 </body>
 </html>
+
