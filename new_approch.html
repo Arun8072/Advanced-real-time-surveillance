@@ -1,160 +1,105 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Object Detection</title>
-    <!-- React and ReactDOM CDN -->
-    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
-    <!-- Babel for JSX Compilation -->
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-    <!-- TensorFlow.js and Models -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-    <!-- Tesseract.js for OCR -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2"></script>
-    <style>
-        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f0f0; margin: 0; }
-        #root { text-align: center; width: 100%; max-width: 800px; }
-        video, canvas { width: 100%; max-width: 640px; margin-top: 10px; }
-        button { margin: 5px; padding: 10px; font-size: 16px; cursor: pointer; }
-        .log-container, .description-container { text-align: left; background-color: #fff; padding: 10px; margin-top: 10px; max-height: 150px; overflow-y: scroll; border: 1px solid #ccc; }
-        h2 { margin: 0; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Object Detection App</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; }
+    #video { width: 100%; max-width: 600px; }
+    .controls button { margin: 5px; }
+    .output { margin-top: 20px; }
+    #face-display { display: flex; justify-content: center; flex-wrap: wrap; }
+    .face-box { border: 2px solid blue; margin: 5px; }
+  </style>
+  <!-- React and ReactDOM CDN -->
+  <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
 </head>
 <body>
-    <div id="root"></div>
-    
-    <script type="text/babel">
-        function App() {
-            const [videoStream, setVideoStream] = React.useState(null);
-            const [facingMode, setFacingMode] = React.useState('user'); // Default: front camera
-            const [detectionActive, setDetectionActive] = React.useState(false);
-            const [objectCount, setObjectCount] = React.useState(0);
-            const [logs, setLogs] = React.useState([]);
-            const [description, setDescription] = React.useState("");
-            const videoRef = React.useRef(null);
-            const canvasRef = React.useRef(null);
-            let detectionModel = null;
+  <div id="root"></div>
 
-            // Start or Stop Camera
-            const toggleCamera = async () => {
-                if (videoStream) {
-                    stopCamera();
-                } else {
-                    await startCamera();
-                }
-            };
+  <!-- TensorFlow.js and PoseNet CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet@latest"></script>
 
-            const startCamera = async () => {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode } });
-                    setVideoStream(stream);
-                    videoRef.current.srcObject = stream;
-                    logEvent("Camera started successfully");
-                } catch (error) {
-                    logEvent("Error starting camera: " + error.message);
-                }
-            };
+  <!-- Tesseract.js for OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@latest"></script>
 
-            const stopCamera = () => {
-                if (videoStream) {
-                    videoStream.getTracks().forEach(track => track.stop());
-                    setVideoStream(null);
-                    setDetectionActive(false);
-                    logEvent("Camera stopped.");
-                }
-            };
+  <script type="text/babel">
+    function App() {
+      const [cameraOn, setCameraOn] = React.useState(false);
+      const [objectCount, setObjectCount] = React.useState(0);
+      const [description, setDescription] = React.useState("");
+      const [log, setLog] = React.useState([]);
+      const videoRef = React.useRef(null);
 
-            // Switch Camera
-            const switchCamera = () => {
-                setFacingMode(prevMode => (prevMode === 'user' ? 'environment' : 'user'));
-                if (videoStream) {
-                    stopCamera();
-                    setTimeout(startCamera, 1000); // Restart camera after switching
-                }
-            };
-
-            // Toggle Detection
-            const toggleDetection = async () => {
-                if (!detectionActive) {
-                    if (!detectionModel) detectionModel = await cocoSsd.load();
-                    logEvent("Object detection model loaded.");
-                    setDetectionActive(true);
-                    detectFrame();
-                } else {
-                    setDetectionActive(false);
-                    logEvent("Object detection stopped.");
-                }
-            };
-
-            const detectFrame = async () => {
-                if (!detectionActive || !videoRef.current) return;
-                const predictions = await detectionModel.detect(videoRef.current);
-                setObjectCount(prev => prev + predictions.length);
-                drawPredictions(predictions);
-                updateDescription(predictions);
-                requestAnimationFrame(detectFrame);
-            };
-
-            const drawPredictions = (predictions) => {
-                const ctx = canvasRef.current.getContext('2d');
-                canvasRef.current.width = videoRef.current.videoWidth;
-                canvasRef.current.height = videoRef.current.videoHeight;
-                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-                ctx.drawImage(videoRef.current, 0, 0);
-
-                predictions.forEach(prediction => {
-                    ctx.beginPath();
-                    ctx.rect(...prediction.bbox);
-                    ctx.lineWidth = 2;
-                    ctx.strokeStyle = 'red';
-                    ctx.stroke();
-                    ctx.fillStyle = 'red';
-                    ctx.fillText(
-                        `${prediction.class} - ${Math.round(prediction.score * 100) / 100}`,
-                        prediction.bbox[0],
-                        prediction.bbox[1] > 10 ? prediction.bbox[1] - 5 : 10
-                    );
-                });
-            };
-
-            // Update Natural Language Description
-            const updateDescription = (predictions) => {
-                const detectedObjects = predictions.map(p => p.class).join(", ");
-                setDescription(`Detected objects: ${detectedObjects || "None"}`);
-            };
-
-            // Logging system
-            const logEvent = (message) => {
-                setLogs(prevLogs => [...prevLogs, message]);
-            };
-
-            return (
-                <div>
-                    <h1>Real-Time Object Detection</h1>
-                    <video ref={videoRef} autoPlay playsInline muted width="640" height="480"></video>
-                    <canvas ref={canvasRef}></canvas>
-                    <div>
-                        <button onClick={toggleCamera}>{videoStream ? 'Stop Camera' : 'Start Camera'}</button>
-                        <button onClick={switchCamera} disabled={!videoStream}>Switch Camera</button>
-                        <button onClick={toggleDetection} disabled={!videoStream}>
-                            {detectionActive ? 'Stop Detection' : 'Start Detection'}
-                        </button>
-                    </div>
-                    <p>Total Objects Detected: {objectCount}</p>
-                    <h2>Description:</h2>
-                    <div className="description-container">{description}</div>
-                    <h2>Logs:</h2>
-                    <div className="log-container">
-                        {logs.map((log, index) => <p key={index}>{log}</p>)}
-                    </div>
-                </div>
-            );
+      // Start/stop the camera
+      const toggleCamera = async () => {
+        if (!cameraOn) {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          videoRef.current.srcObject = stream;
+          setCameraOn(true);
+          addLog("Camera started");
+        } else {
+          const stream = videoRef.current.srcObject;
+          stream.getTracks().forEach(track => track.stop());
+          videoRef.current.srcObject = null;
+          setCameraOn(false);
+          addLog("Camera stopped");
         }
+      };
 
-        ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
+      const addLog = (message) => {
+        setLog((prevLog) => [...prevLog, message]);
+      };
+
+      // Placeholder function for object detection
+      const startDetection = () => {
+        if (!cameraOn) return;
+        addLog("Object detection started");
+        // Placeholder: Integrate real object detection models here
+        setObjectCount((prevCount) => prevCount + 1);
+        setDescription("Detected object: Example Object");
+      };
+
+      // Placeholder function for text extraction
+      const extractText = async () => {
+        if (!cameraOn) return;
+        addLog("Text extraction started");
+        // Use Tesseract.js for OCR
+        const canvas = document.createElement('canvas');
+        canvas.width = videoRef.current.videoWidth;
+        canvas.height = videoRef.current.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
+        setDescription(`Extracted Text: ${text}`);
+      };
+
+      return (
+        <div>
+          <h1>AI Object Detection App</h1>
+          <video id="video" ref={videoRef} autoPlay muted></video>
+          <div className="controls">
+            <button onClick={toggleCamera}>{cameraOn ? "Stop Camera" : "Start Camera"}</button>
+            <button onClick={startDetection} disabled={!cameraOn}>Start Detection</button>
+            <button onClick={extractText} disabled={!cameraOn}>Extract Text</button>
+          </div>
+          <div className="output">
+            <p>Total Objects Detected: <span id="obj-count">{objectCount}</span></p>
+            <p>Description: {description}</p>
+            <p>Logs:</p>
+            <ul>
+              {log.map((entry, index) => <li key={index}>{entry}</li>)}
+            </ul>
+          </div>
+          <div id="face-display"></div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
 </body>
 </html>
