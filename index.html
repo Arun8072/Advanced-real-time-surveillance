@@ -800,6 +800,21 @@
                 return `${vertical}-${horizontal}`;
             }
 
+            async function recognizeText() {
+                if (!cameraActive) return;
+
+                const ctx = canvasRef.current.getContext('2d');
+                const imageData = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
+                
+                try {
+                    const extractedText = await extractTextFromImage(imageData);
+                    log(`Extracted Text: ${extractedText}`);
+                    setDetectionResults(prev => `${prev}\nExtracted Text: ${extractedText}`);
+                } catch (error) {
+                    log(`Error during text recognition: ${error.message}`);
+                }
+            }
+
             return (
                 <div className="container">
                     <h1>Advanced Real-time Object, Pose, Face, Behavior, Text, and Statistical Anomaly Detection</h1>
@@ -812,6 +827,7 @@
                         <button onClick={toggleCamera}>{cameraActive ? 'Stop Camera' : 'Start Camera'}</button>
                         <button onClick={switchCamera} disabled={!cameraActive}>Switch Camera</button>
                         <button onClick={startDetection} disabled={!cameraActive}>{isDetecting ? 'Stop Detection' : 'Start Detection'}</button>
+                        <button onClick={recognizeText} disabled={!cameraActive}>Extract Text</button>
                     </div>
                     <div id="total_obj">Total Detected <span id="obj_count">{uniqueObjects.size}</span> objects</div>
                     <div id="detectionResults">{detectionResults}</div>
