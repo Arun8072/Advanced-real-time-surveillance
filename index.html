@@ -34,9 +34,9 @@
         .video-container {
             position: relative;
             width: 100%;
-            max-width: 640px;
+            max-width: 100%;
             margin: 0 auto;
-            aspect-ratio: 4 / 3;
+            padding-top: 75%; /* 4:3 Aspect Ratio */
             background-color: #000;
         }
         #video, #canvas, #placeholder-canvas {
@@ -225,14 +225,10 @@
             async function initializeTesseractWorker() {
                 try {
                     log('Initializing Tesseract worker...');
-                    if (!tesseractWorkerRef.current) {
-                        tesseractWorkerRef.current = await Tesseract.createWorker({
-                            logger: m => log(m.progress || 'Initializing...'), // Log progress
-                        });
-                        await tesseractWorkerRef.current.load();
-                        await tesseractWorkerRef.current.loadLanguage('eng');
-                        await tesseractWorkerRef.current.initialize('eng');
-                    }
+                    tesseractWorkerRef.current = await Tesseract.createWorker();
+                    await tesseractWorkerRef.current.load();
+                    await tesseractWorkerRef.current.loadLanguage('eng');
+                    await tesseractWorkerRef.current.initialize('eng');
                     log('Tesseract worker initialized successfully');
                 } catch (error) {
                     log('Error initializing Tesseract worker: ' + error.message);
@@ -260,8 +256,6 @@
                     const constraints = {
                         video: {
                             facingMode: currentCameraFacingMode,
-                            width: { ideal: 640 },
-                            height: { ideal: 480 }
                         }
                     };
 
@@ -269,11 +263,14 @@
                     videoRef.current.srcObject = streamRef.current;
                     await videoRef.current.play();
 
-                    canvasRef.current.width = videoRef.current.videoWidth;
-                    canvasRef.current.height = videoRef.current.videoHeight;
-                    placeholderCanvasRef.current.width = videoRef.current.videoWidth;
-                    placeholderCanvasRef.current.height = videoRef.current.videoHeight;
-                    log(`Video dimensions: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
+                    const containerWidth = videoRef.current.parentElement.clientWidth;
+                    const containerHeight = videoRef.current.parentElement.clientHeight;
+
+                    canvasRef.current.width = containerWidth;
+                    canvasRef.current.height = containerHeight;
+                    placeholderCanvasRef.current.width = containerWidth;
+                    placeholderCanvasRef.current.height = containerHeight;
+                    log(`Video dimensions: ${containerWidth}x${containerHeight}`);
 
                     setCameraActive(true);
                 } catch (error) {
@@ -444,34 +441,40 @@
             }
 
             async function extractTextFromImage(imageData) {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                canvas.width = imageData.width;
-                canvas.height = imageData.height;
-
-                // Convert to grayscale
-                ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-                const grayScaleImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                for (let i = 0; i < grayScaleImageData.data.length; i += 4) {
-                    const avg = (grayScaleImageData.data[i] + grayScaleImageData.data[i + 1] + grayScaleImageData.data[i + 2]) / 3;
-                    grayScaleImageData.data[i] = avg;        // Red
-                    grayScaleImageData.data[i + 1] = avg;    // Green
-                    grayScaleImageData.data[i + 2] = avg;    // Blue
+                if (!imageData || !imageData.data || !imageData.data.length) {
+                    log('Invalid image data for text extraction');
+                    return '';
                 }
-                ctx.putImageData(grayScaleImageData, 0, 0);
-
                 try {
-                    const result = await tesseractWorkerRef.current.recognize(canvas, { 
-                        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', 
-                        oem: 1, // LSTM engine
-                        psm: 6  // Assume a single uniform block of text
-                    });
-                    return result.data.text.trim();
+                    log('Starting text extraction...');
+                    const result = await tesseractWorkerRef.current.recognize(imageData);
+                    const extractedText = result.data.text.trim();
+                    log(`Text extraction completed. Extracted text: ${extractedText}`);
+                    return extractedText;
                 } catch (error) {
                     log(`Tesseract error: ${error.message}`);
                     console.error('Text extraction error details:', error);
                     await resetTesseractWorker();  // Reset worker on failure
                     return '';
+                }
+            }
+
+            async function recognizeText() {
+                if (!cameraActive) return;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = videoRef.current.videoWidth;
+                canvas.height = videoRef.current.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                try {
+                    const extractedText = await extractTextFromImage(imageData);
+                    log(`Extracted Text: ${extractedText}`);
+                    setDetectionResults(prev => `${prev}\nExtracted Text: ${extractedText}`);
+                } catch (error) {
+                    log(`Error during text recognition: ${error.message}`);
                 }
             }
 
@@ -816,18 +819,6 @@
                 let horizontal = x < xThird ? "left" : (x < 2 * xThird ? "center" : "right");
                 
                 return `${vertical}-${horizontal}`;
-            }
-
-            async function recognizeText() {
-                if (!cameraActive) return;
-
-                try {
-                    const extractedText = await extractTextFromImage(canvasRef.current);
-                    log(`Extracted Text: ${extractedText}`);
-                    setDetectionResults(prev => `${prev}\nExtracted Text: ${extractedText}`);
-                } catch (error) {
-                    log(`Error during text recognition: ${error.message}`);
-                }
             }
 
             return (
