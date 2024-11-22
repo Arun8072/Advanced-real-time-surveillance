@@ -225,10 +225,14 @@
             async function initializeTesseractWorker() {
                 try {
                     log('Initializing Tesseract worker...');
-                    tesseractWorkerRef.current = await Tesseract.createWorker();
-                    await tesseractWorkerRef.current.load();
-                    await tesseractWorkerRef.current.loadLanguage('eng');
-                    await tesseractWorkerRef.current.initialize('eng');
+                    if (!tesseractWorkerRef.current) {
+                        tesseractWorkerRef.current = await Tesseract.createWorker({
+                            logger: m => log(m.progress || 'Initializing...'), // Log progress
+                        });
+                        await tesseractWorkerRef.current.load();
+                        await tesseractWorkerRef.current.loadLanguage('eng');
+                        await tesseractWorkerRef.current.initialize('eng');
+                    }
                     log('Tesseract worker initialized successfully');
                 } catch (error) {
                     log('Error initializing Tesseract worker: ' + error.message);
@@ -439,6 +443,38 @@
                 requestAnimationFrame(detectAll);
             }
 
+            async function extractTextFromImage(imageData) {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = imageData.width;
+                canvas.height = imageData.height;
+
+                // Convert to grayscale
+                ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+                const grayScaleImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (let i = 0; i < grayScaleImageData.data.length; i += 4) {
+                    const avg = (grayScaleImageData.data[i] + grayScaleImageData.data[i + 1] + grayScaleImageData.data[i + 2]) / 3;
+                    grayScaleImageData.data[i] = avg;        // Red
+                    grayScaleImageData.data[i + 1] = avg;    // Green
+                    grayScaleImageData.data[i + 2] = avg;    // Blue
+                }
+                ctx.putImageData(grayScaleImageData, 0, 0);
+
+                try {
+                    const result = await tesseractWorkerRef.current.recognize(canvas, { 
+                        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', 
+                        oem: 1, // LSTM engine
+                        psm: 6  // Assume a single uniform block of text
+                    });
+                    return result.data.text.trim();
+                } catch (error) {
+                    log(`Tesseract error: ${error.message}`);
+                    console.error('Text extraction error details:', error);
+                    await resetTesseractWorker();  // Reset worker on failure
+                    return '';
+                }
+            }
+
             function detectStatisticalAnomalies(motions) {
                 const anomalies = [];
                 motions.forEach(motion => {
@@ -593,24 +629,6 @@
 
                 const angle = Math.acos(dotProduct / (magnitudeAB * magnitudeBC));
                 return angle * (180 / Math.PI);
-            }
-
-            async function extractTextFromImage(imageData) {
-                if (!imageData || !imageData.data || !imageData.data.length) {
-                    log('Invalid image data for text extraction');
-                    return '';
-                }
-                try {
-                    log('Starting text extraction...');
-                    const result = await tesseractWorkerRef.current.recognize(imageData);
-                    log('Text extraction completed');
-                    return result.data.text.trim();
-                } catch (error) {
-                    log(`Tesseract error: ${error.message}`);
-                    console.error('Text extraction error details:', error);
-                    await resetTesseractWorker();  // Reset worker on failure
-                    return '';
-                }
             }
 
             async function detectVehicleNumbers(objects, imageData) {
@@ -803,11 +821,8 @@
             async function recognizeText() {
                 if (!cameraActive) return;
 
-                const ctx = canvasRef.current.getContext('2d');
-                const imageData = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
-                
                 try {
-                    const extractedText = await extractTextFromImage(imageData);
+                    const extractedText = await extractTextFromImage(canvasRef.current);
                     log(`Extracted Text: ${extractedText}`);
                     setDetectionResults(prev => `${prev}\nExtracted Text: ${extractedText}`);
                 } catch (error) {
