@@ -108,7 +108,21 @@
         .log-content {
             overflow-y: auto;
         }
+
+        #qr-reader {
+            width: 300px;
+            height: 300px;
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.0/dist/simple-statistics.min.js"></script>
+    <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <script src="https://unpkg.com/html5-qrcode/minified/html5-qrcode.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -120,8 +134,9 @@
         </div>
         <div class="controls">
             <button id="toggleCamera">Start Camera</button>
-            <button id="switchCamera">Switch Camera</button>
+                        <button id="switchCamera">Switch Camera</button>
             <button id="startDetection">Start Detection</button>
+            <button id="scan-button">Scan QR Code</button>
         </div>
         <div id="total_obj">Total Detected <span id="obj_count">0</span> objects</div>
         <div id="detectionResults"></div>
@@ -133,38 +148,62 @@
             <div class="log-content"></div>
             <button class="expand-btn">Expand</button>
         </div>
+        <div id="qr-reader"></div>
+        <div id="qr-result"></div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
-    <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.0/dist/simple-statistics.min.js"></script>
-    <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
-    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <script>
         let video, canvas, ctx, placeholderCanvas, placeholderCtx, objectDetectionModel, poseNetModel, stream;
         let isDetecting = false;
         let currentCameraFacingMode = 'environment';
         const objCountSpan = document.getElementById('obj_count');
         const nlpDescriptionDiv = document.getElementById('nlpDescription');
-        let uniqueObjects = new Set();
-        let prevObjects = [];
-        let objectTracker = {};
-        let gestureHistory = [];
-        let motionHistory = [];
-        let speedHistory = {};
-        let behaviorHistory = []; // Updated initialization
-        let positionHistory = []; // Added positionHistory
-        let restrictedAreas = [
-            { x: 100, y: 100, width: 200, height: 150 },
-            { x: 400, y: 300, width: 150, height: 100 }
-        ];
+        const logDiv = document.getElementById('log');
+        const qrReader = new Html5Qrcode("qr-reader");
 
+        function log(message) {
+            console.log(message);
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            document.querySelector('#log .log-content').insertBefore(logEntry, document.querySelector('#log .log-content').firstChild);
+            if (document.querySelector('#log .log-content').childElementCount > 50) {
+                document.querySelector('#log .log-content').removeChild(document.querySelector('#log .log-content').lastChild);
+            }
+        }
+
+        // QR Code scanning functionality
+        const scanButton = document.getElementById('scan-button');
+        const qrResult = document.getElementById('qr-result');
+
+        scanButton.addEventListener('click', () => {
+            log("Starting QR Code scanner...");
+            qrReader.start(
+                { facingMode: "environment" },
+                {
+                    fps: 10,
+                    qrbox: 250
+                },
+                (decodedText, decodedResult) => {
+                    // Handle the scanned QR code here
+                    qrResult.innerText = `QR Code detected: ${decodedText}`;
+                    log(`QR Code detected: ${decodedText}`);
+                    qrReader.stop(); // Stop scanning after a successful scan
+                },
+                (errorMessage) => {
+                    // Handle scan error
+                    log(`QR Code scan error: ${errorMessage}`);
+                }
+            ).catch(err => {
+                // Start failed, handle it.
+                log(`Unable to start scanning: ${err}`);
+            });
+        });
+
+        // Existing camera and detection functionality
         const toggleCameraButton = document.getElementById('toggleCamera');
         const switchCameraButton = document.getElementById('switchCamera');
         const startDetectionButton = document.getElementById('startDetection');
         const detectionResultsDiv = document.getElementById('detectionResults');
-        const logDiv = document.getElementById('log');
 
         function log(message) {
             console.log(message);
@@ -178,167 +217,6 @@
 
         function updateObjectCount() {
             objCountSpan.textContent = uniqueObjects.size;
-        }
-
-        function generateNLPDescription(objects, poses, anomalies, motions, faceResults, behaviors) {
-            let description = '';
-            const newObjects = objects.filter(obj => !prevObjects.some(prevObj => prevObj.class === obj.class));
-            const disappearedObjects = prevObjects.filter(prevObj => !objects.some(obj => obj.class === prevObj.class));
-
-            if (newObjects.length > 0) {
-                description += `New objects detected: ${newObjects.map(obj => obj.class).join(', ')}. `;
-            }
-
-            if (disappearedObjects.length > 0) {
-                description += `Objects no longer visible: ${disappearedObjects.map(obj => obj.class).join(', ')}. `;
-            }
-
-            const movingObjects = [];
-            objects.forEach(obj => {
-                const prevObj = prevObjects.find(pObj => pObj.class === obj.class);
-                if (prevObj) {
-                    const xDiff = obj.bbox[0] - prevObj.bbox[0];
-                    const yDiff = obj.bbox[1] - prevObj.bbox[1];
-                    if (Math.abs(xDiff) > 10 || Math.abs(yDiff) > 10) {
-                        const xDirection = xDiff > 0 ? 'right' : 'left';
-                        const yDirection = yDiff > 0 ? 'down' : 'up';
-                        movingObjects.push(`${obj.class} moving ${xDirection} and ${yDirection}`);
-                    }
-                }
-
-                // Track object movement
-                if (!objectTracker[obj.class]) {
-                    objectTracker[obj.class] = [];
-                }
-                objectTracker[obj.class].push({x: obj.bbox[0], y: obj.bbox[1], time: Date.now()});
-                if (objectTracker[obj.class].length > 10) {
-                    objectTracker[obj.class].shift();
-                }
-            });
-
-            if (movingObjects.length > 0) {
-                description += `Movement detected: ${movingObjects.join(', ')}. `;
-            }
-
-            // Analyze object trajectories
-            for (const [objClass, trajectory] of Object.entries(objectTracker)) {
-                if (trajectory.length > 5) {
-                    const startPoint = trajectory[0];
-                    const endPoint = trajectory[trajectory.length - 1];
-                    const xDiff = endPoint.x - startPoint.x;
-                    const yDiff = endPoint.y - startPoint.y;
-                    const timeDiff = (endPoint.time - startPoint.time) / 1000; // in seconds
-                    const speed = Math.sqrt(xDiff * xDiff + yDiff * yDiff) / timeDiff;
-                    const direction = Math.atan2(yDiff, xDiff) * 180 / Math.PI;
-
-                    const speedDescription = getSpeedDescription(speed);
-                    const directionDescription = getDirectionDescription(direction);
-                    const positionDescription = getPositionDescription(endPoint.x, endPoint.y, canvas.width, canvas.height);
-
-                    description += `${objClass} is moving ${speedDescription} ${directionDescription} in the ${positionDescription} of the screen. `;
-                }
-            }
-
-            // Add pose recognition and behavior monitoring description
-            if (poses && poses.length > 0) {
-                description += `Detected ${poses.length} person(s). `;
-                poses.forEach((pose, index) => {
-                    const keypoints = pose.keypoints;
-                    const leftWrist = keypoints.find(kp => kp.part === 'leftWrist');
-                    const rightWrist = keypoints.find(kp => kp.part === 'rightWrist');
-                    const nose = keypoints.find(kp => kp.part === 'nose');
-
-                    if (leftWrist && rightWrist && nose) {
-                        if (leftWrist.position.y < nose.position.y && rightWrist.position.y < nose.position.y) {
-                            description += `Person ${index + 1} is raising both hands. `;
-                            gestureHistory.push('raising hands');
-                        } else if (Math.abs(leftWrist.position.x - rightWrist.position.x) > 100) {
-                            description += `Person ${index + 1} might be waving. `;
-                            gestureHistory.push('waving');
-                        }
-                    }
-
-                    // Check for loitering in restricted areas
-                    restrictedAreas.forEach((area, areaIndex) => {
-                        if (nose.position.x > area.x && nose.position.x < area.x + area.width &&
-                            nose.position.y > area.y && nose.position.y < area.y + area.height) {
-                            description += `ALERT: Person ${index + 1} is in restricted area ${areaIndex + 1}. `;
-                        }
-                    });
-
-                    // Add behavior description
-                    if (behaviors[index]) {
-                        description += `Person ${index + 1} is ${behaviors[index]}. `;
-                    }
-                });
-            }
-
-            // Analyze gesture history
-            if (gestureHistory.length > 5) {
-                const recentGestures = gestureHistory.slice(-5);
-                if (recentGestures.filter(g => g === 'waving').length >= 3) {
-                    description += 'Continuous waving detected. ';
-                } else if (recentGestures.filter(g => g === 'raising hands').length >= 3) {
-                    description += 'Repeated hand raising detected. ';
-                }
-                gestureHistory = gestureHistory.slice(-10); // Keep only last 10 gestures
-            }
-
-            // Add anomaly detection description
-            if (anomalies && anomalies.length > 0) {
-                description += `Statistical anomalies detected: ${anomalies.join(', ')}. `;
-            }
-
-            // Add motion detection and behavior classification description
-            if (motions && motions.length > 0) {
-                motions.forEach(motion => {
-                    const speedDescription = getSpeedDescription(motion.speed);
-                    description += `${motion.object} is ${motion.behavior} at ${speedDescription} speed. `;
-                });
-            }
-
-            // Add face analysis results
-            if (faceResults && faceResults.length > 0) {
-                description += `Detected ${faceResults.length} face(s). `;
-                faceResults.forEach((face, index) => {
-                    description += `Face ${index + 1}: `;
-                    if (face.age) description += `Estimated age: ${Math.round(face.age)}. `;
-                    if (face.gender) description += `Estimated gender: ${face.gender}. `;
-                    if (face.expressions) {
-                        const topExpression = Object.entries(face.expressions).reduce((a, b) => a[1] > b[1] ? a : b);
-                        description += `Dominant expression: ${topExpression[0]}. `;
-                    }
-                });
-            }
-
-            prevObjects = objects;
-            return description.trim();
-        }
-
-        function getSpeedDescription(speed) {
-            if (speed < 1) return "stationary";
-            if (speed < 3) return "slowly";
-            if (speed < 7) return "at medium speed";
-            if (speed < 15) return "quickly";
-            return "very quickly";
-        }
-
-        function getDirectionDescription(degrees) {
-            if (degrees < 0) degrees += 360;
-            if (degrees >= 315 || degrees < 45) return "upwards";
-            if (degrees >= 45 && degrees < 135) return "to the right";
-            if (degrees >= 135 && degrees < 225) return "downwards";
-            return "to the left";
-        }
-
-        function getPositionDescription(x, y, width, height) {
-            const xThird = width / 3;
-            const yThird = height / 3;
-            
-            let vertical = y < yThird ? "top" : (y < 2 * yThird ? "middle" : "bottom");
-            let horizontal = x < xThird ? "left" : (x < 2 * xThird ? "center" : "right");
-            
-            return `${vertical}-${horizontal}`;
         }
 
         async function loadModels() {
@@ -358,9 +236,11 @@
                 await faceapi.nets.ssdMobilenetv1.loadFromUri(modelPath + 'ssd_mobilenetv1_model-weights_manifest.json');
                 log('SSD MobileNetv1 face detection model loaded successfully');
 
-                log('Loading Face Landmark Detection model...');
-                await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath + 'face_landmark_68_model-weights_manifest.json');
-                log('Face Landmark Detection model loaded successfully');
+                
+                log('Loading Face Recognition model...');
+                await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath + 'face_recognition_model-weights_manifest.json');
+                
+                                log('Face Landmark Detection model loaded successfully');
 
                 log('Loading Face Recognition model...');
                 await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath + 'face_recognition_model-weights_manifest.json');
@@ -399,7 +279,7 @@
                     }
                 };
 
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                stream = await navigator.mediaDevices.getUser Media(constraints);
                 video.srcObject = stream;
                 await video.play();
 
@@ -489,7 +369,7 @@
                     const color = [255, 0, 0, 255]; // Red color for object bounding box
 
                     const point1 = new cv.Point(x, y);
-                    const point2 = new cv.Point(x + width, y + height);
+                                        const point2 = new cv.Point(x + width, y + height);
                     cv.rectangle(mat, point1, point2, color, 2);
 
                     const text = `${prediction.class} (${Math.round(prediction.score * 100)}%)`;
@@ -512,7 +392,7 @@
                     // Draw skeleton
                     const adjacentKeyPoints = posenet.getAdjacentKeyPoints(pose.keypoints, 0.2);
                     adjacentKeyPoints.forEach(keypoints => {
-                        cv.line(mat, 
+                        cv.line(mat,
                             new cv.Point(keypoints[0].position.x, keypoints[0].position.y),
                             new cv.Point(keypoints[1].position.x, keypoints[1].position.y),
                             color, 2);
@@ -520,17 +400,6 @@
 
                     detectionText += `Person ${index + 1} detected with ${pose.keypoints.length} keypoints\n`;
                     detectionText += `Behavior: ${behaviors[index]}\n`;
-                });
-
-                // Draw restricted areas
-                restrictedAreas.forEach((area, index) => {
-                    cv.rectangle(mat, 
-                        new cv.Point(area.x, area.y),
-                        new cv.Point(area.x + area.width, area.y + area.height),
-                        [255, 255, 0, 255], 2); // Yellow color for restricted areas
-                    cv.putText(mat, `Restricted Area ${index + 1}`, 
-                        new cv.Point(area.x, area.y - 5),
-                        cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 255, 0, 255], 1);
                 });
 
                 // Draw face detection results
@@ -603,7 +472,7 @@
 
             if (motionHistory.length > 0) {
                 const prevMat = motionHistory[motionHistory.length - 1];
-                const flow = new cv.Mat();
+                                const flow = new cv.Mat();
                 cv.calcOpticalFlowFarneback(prevMat, prevFrame, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
 
                 objects.forEach(obj => {
@@ -719,7 +588,7 @@
             const vectorAB = { x: pointB.position.x - pointA.position.x, y: pointB.position.y - pointA.position.y };
             const vectorBC = { x: pointC.position.x - pointB.position.x, y: pointC.position.y - pointB.position.y };
 
-            const dotProduct = vectorAB.x * vectorBC.x + vectorAB.y * vectorBC.y;
+                        const dotProduct = vectorAB.x * vectorBC.x + vectorAB.y * vectorBC.y;
             const magnitudeAB = Math.sqrt(vectorAB.x * vectorAB.x + vectorAB.y * vectorAB.y);
             const magnitudeBC = Math.sqrt(vectorBC.x * vectorBC.x + vectorBC.y * vectorBC.y);
 
@@ -727,12 +596,14 @@
             return angle * (180 / Math.PI); // Convert to degrees
         }
 
+        // Initialize video and canvas elements
         video = document.getElementById('video');
         canvas = document.getElementById('canvas');
         ctx = canvas.getContext('2d');
         placeholderCanvas = document.getElementById('placeholder-canvas');
         placeholderCtx = placeholderCanvas.getContext('2d');
 
+        // Add event listeners to buttons
         toggleCameraButton.addEventListener('click', toggleCamera);
         switchCameraButton.addEventListener('click', switchCamera);
         startDetectionButton.addEventListener('click', startDetection);
@@ -741,20 +612,8 @@
         switchCameraButton.disabled = true;
         startDetectionButton.disabled = true;
 
-        // Expand functionality for log and nlpDescription
-        document.querySelectorAll('.expand-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const parentDiv = this.closest('.log-container');
-                parentDiv.classList.toggle('expanded');
-                this.textContent = parentDiv.classList.contains('expanded') ? 'Collapse' : 'Expand';
-            });
-        });
-
-        // Load OpenCV.js
-        function onOpenCvReady() {
-            log('OpenCV.js is ready');
-            loadModels();
-        }
+        // Load models and start the application
+        loadModels();
     </script>
 </body>
 </html>
