@@ -3,17 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Real-time Object, Pose, Face, Behavior, Text, and Statistical Anomaly Detection</title>
-    <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
-    <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.0/dist/simple-statistics.min.js"></script>
-    <script src="https://docs.opencv.org/4.x/opencv.js" async></script>
-    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
-    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <title>Advanced Real-time Object, Pose, Face, Behavior, and Statistical Anomaly Detection</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -21,24 +11,26 @@
             padding: 20px;
             background-color: #f0f0f0;
         }
+
         .container {
-            max-width: 100%;
+            max-width: 800px;
             margin: 0 auto;
-            padding: 0 15px;
         }
+
         h1 {
             text-align: center;
             color: #333;
-            font-size: 24px;
         }
+
         .video-container {
             position: relative;
             width: 100%;
-            max-width: 100%;
+            max-width: 640px;
             margin: 0 auto;
-            padding-top: 75%; /* 4:3 Aspect Ratio */
+            aspect-ratio: 4 / 3;
             background-color: #000;
         }
+
         #video, #canvas, #placeholder-canvas {
             position: absolute;
             top: 0;
@@ -47,13 +39,14 @@
             height: 100%;
             object-fit: contain;
         }
+
         .controls {
             display: flex;
-            flex-wrap: wrap;
             justify-content: center;
             margin-top: 20px;
             gap: 10px;
         }
+
         button {
             padding: 10px 20px;
             font-size: 16px;
@@ -63,13 +56,11 @@
             border: none;
             border-radius: 5px;
         }
+
         button:hover {
             background-color: #45a049;
         }
-        button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
+
         #total_obj, #detectionResults, #log, #nlpDescription {
             margin-top: 20px;
             padding: 10px;
@@ -77,20 +68,23 @@
             border-radius: 5px;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
+
         #total_obj {
             font-size: 18px;
             font-weight: bold;
             text-align: center;
         }
+
         #log, #nlpDescription {
             position: relative;
             white-space: pre-wrap;
             font-family: monospace;
             font-size: 14px;
             overflow-y: auto;
-            padding-bottom: 30px;
-            max-height: 200px;
+            padding-bottom: 30px; /* Space for the expand button */
+            max-height: 200px; /* Set a fixed height */
         }
+
         .expand-btn {
             position: absolute;
             bottom: 5px;
@@ -102,8 +96,9 @@
             cursor: pointer;
             font-size: 12px;
             border-radius: 3px;
-            z-index: 10;
+            z-index: 10; /* Ensure the button is always on top */
         }
+
         .expanded {
             max-height: none !important;
         }
@@ -113,751 +108,653 @@
         .log-content {
             overflow-y: auto;
         }
-        @media (max-width: 768px) {
-            h1 {
-                font-size: 20px;
-            }
-            button {
-                font-size: 14px;
-                padding: 8px 16px;
-            }
-        }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div class="container">
+        <h1>Advanced Real-time Object, Pose, Face, Behavior, and Statistical Anomaly Detection</h1>
+        <div class="video-container">
+            <video id="video" playsinline></video>
+            <canvas id="canvas"></canvas>
+            <canvas id="placeholder-canvas"></canvas>
+        </div>
+        <div class="controls">
+            <button id="toggleCamera">Start Camera</button>
+            <button id="switchCamera">Switch Camera</button>
+            <button id="startDetection">Start Detection</button>
+        </div>
+        <div id="total_obj">Total Detected <span id="obj_count">0</span> objects</div>
+        <div id="detectionResults"></div>
+        <div id="nlpDescription" class="log-container">
+            <div class="log-content"></div>
+            <button class="expand-btn">Expand</button>
+        </div>
+        <div id="log" class="log-container">
+            <div class="log-content"></div>
+            <button class="expand-btn">Expand</button>
+        </div>
+    </div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.0/dist/simple-statistics.min.js"></script>
+    <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <script>
+        let video, canvas, ctx, placeholderCanvas, placeholderCtx, objectDetectionModel, poseNetModel, stream;
+        let isDetecting = false;
+        let currentCameraFacingMode = 'environment';
+        const objCountSpan = document.getElementById('obj_count');
+        const nlpDescriptionDiv = document.getElementById('nlpDescription');
+        let uniqueObjects = new Set();
+        let prevObjects = [];
+        let objectTracker = {};
+        let gestureHistory = [];
+        let motionHistory = [];
+        let speedHistory = {};
+        let behaviorHistory = []; // Updated initialization
+        let positionHistory = []; // Added positionHistory
+        let restrictedAreas = [
+            { x: 100, y: 100, width: 200, height: 150 },
+            { x: 400, y: 300, width: 150, height: 100 }
+        ];
 
-        function App() {
-            const [isDetecting, setIsDetecting] = useState(false);
-            const [cameraActive, setCameraActive] = useState(false);
-            const [currentCameraFacingMode, setCurrentCameraFacingMode] = useState('environment');
-            const [uniqueObjects, setUniqueObjects] = useState(new Set());
-            const [detectionResults, setDetectionResults] = useState('');
-            const [nlpDescription, setNlpDescription] = useState([]);
-            const [logMessages, setLogMessages] = useState([]);
+        const toggleCameraButton = document.getElementById('toggleCamera');
+        const switchCameraButton = document.getElementById('switchCamera');
+        const startDetectionButton = document.getElementById('startDetection');
+        const detectionResultsDiv = document.getElementById('detectionResults');
+        const logDiv = document.getElementById('log');
 
-            const videoRef = useRef(null);
-            const canvasRef = useRef(null);
-            const placeholderCanvasRef = useRef(null);
-            const streamRef = useRef(null);
-            const objectDetectionModelRef = useRef(null);
-            const poseNetModelRef = useRef(null);
-            const tesseractWorkerRef = useRef(null);
-            const prevObjectsRef = useRef([]);
-            const objectTrackerRef = useRef({});
-            const gestureHistoryRef = useRef([]);
-            const motionHistoryRef = useRef([]);
-            const speedHistoryRef = useRef({});
-            const behaviorHistoryRef = useRef([]);
-            const positionHistoryRef = useRef([]);
-
-            const restrictedAreas = [
-                { x: 100, y: 100, width: 200, height: 150 },
-                { x: 400, y: 300, width: 150, height: 100 }
-            ];
-
-            useEffect(() => {
-                loadModels();
-                return () => {
-                    if (tesseractWorkerRef.current) {
-                        tesseractWorkerRef.current.terminate();
-                    }
-                };
-            }, []);
-
-            function log(message) {
-                console.log(message);
-                setLogMessages(prev => [{time: new Date().toLocaleTimeString(), message}, ...prev.slice(0, 49)]);
+        function log(message) {
+            console.log(message);
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            document.querySelector('#log .log-content').insertBefore(logEntry, document.querySelector('#log .log-content').firstChild);
+            if (document.querySelector('#log .log-content').childElementCount > 50) {
+                document.querySelector('#log .log-content').removeChild(document.querySelector('#log .log-content').lastChild);
             }
-
-            async function loadModels() {
-                try {
-                    if (!WebAssembly) {
-                        log('WebAssembly is not supported by this browser.');
-                        return;
-                    }
-
-                    log('Loading COCO-SSD model...');
-                    objectDetectionModelRef.current = await cocoSsd.load();
-                    log('COCO-SSD model loaded successfully');
-
-                    log('Loading PoseNet model...');
-                    poseNetModelRef.current = await posenet.load();
-                    log('PoseNet model loaded successfully');
-
-                    log('Loading Face-API.js models...');
-                    const modelPath = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights/';
-
-                    log('Loading SSD MobileNetv1 face detection model...');
-                    await faceapi.nets.ssdMobilenetv1.loadFromUri(modelPath);
-                    log('SSD MobileNetv1 face detection model loaded successfully');
-
-                    log('Loading Face Landmark Detection model...');
-                    await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
-                    log('Face Landmark Detection model loaded successfully');
-
-                    log('Loading Face Recognition model...');
-                    await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath);
-                    log('Face Recognition model loaded successfully');
-
-                    log('Loading Face Expression Detection model...');
-                    await faceapi.nets.faceExpressionNet.loadFromUri(modelPath);
-                    log('Face Expression Detection model loaded successfully');
-
-                    log('Loading Age and Gender Estimation model...');
-                    await faceapi.nets.ageGenderNet.loadFromUri(modelPath);
-                    log('Age and Gender Estimation model loaded successfully');
-
-                    log('All Face-API.js models loaded successfully');
-
-                    log('Initializing Tesseract worker...');
-                    await initializeTesseractWorker();
-                    log('Tesseract.js worker initialized successfully');
-                } catch (error) {
-                    log('Error loading models: ' + error.message);
-                    console.error('Error details:', error);
-                }
-            }
-
-            async function initializeTesseractWorker() {
-                try {
-                    log('Initializing Tesseract worker...');
-                    tesseractWorkerRef.current = await Tesseract.createWorker();
-                    await tesseractWorkerRef.current.load();
-                    await tesseractWorkerRef.current.loadLanguage('eng');
-                    await tesseractWorkerRef.current.initialize('eng');
-                    log('Tesseract worker initialized successfully');
-                } catch (error) {
-                    log('Error initializing Tesseract worker: ' + error.message);
-                    console.error('Tesseract initialization error details:', error);
-                }
-            }
-
-            async function resetTesseractWorker() {
-                if (tesseractWorkerRef.current) {
-                    await tesseractWorkerRef.current.terminate();
-                }
-                await initializeTesseractWorker();
-            }
-
-            async function toggleCamera() {
-                if (streamRef.current) {
-                    stopCamera();
-                } else {
-                    await startCamera();
-                }
-            }
-
-            async function startCamera() {
-                try {
-                    const constraints = {
-                        video: {
-                            facingMode: currentCameraFacingMode,
-                        }
-                    };
-
-                    streamRef.current = await navigator.mediaDevices.getUserMedia(constraints);
-                    videoRef.current.srcObject = streamRef.current;
-                    await videoRef.current.play();
-
-                    const containerWidth = videoRef.current.parentElement.clientWidth;
-                    const containerHeight = videoRef.current.parentElement.clientHeight;
-
-                    canvasRef.current.width = containerWidth;
-                    canvasRef.current.height = containerHeight;
-                    placeholderCanvasRef.current.width = containerWidth;
-                    placeholderCanvasRef.current.height = containerHeight;
-                    log(`Video dimensions: ${containerWidth}x${containerHeight}`);
-
-                    setCameraActive(true);
-                } catch (error) {
-                    log('Error starting camera: ' + error.message);
-                }
-            }
-
-            function stopCamera() {
-                if (streamRef.current) {
-                    streamRef.current.getTracks().forEach(track => track.stop());
-                    streamRef.current = null;
-                    videoRef.current.srcObject = null;
-                    setCameraActive(false);
-                    const placeholderCtx = placeholderCanvasRef.current.getContext('2d');
-                    placeholderCtx.drawImage(canvasRef.current, 0, 0);
-                    log('Camera stopped');
-                }
-            }
-
-            function switchCamera() {
-                setCurrentCameraFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
-                if (streamRef.current) {
-                    stopCamera();
-                    startCamera();
-                }
-                log(`Switched to ${currentCameraFacingMode} camera`);
-            }
-
-            async function startDetection() {
-                if (!objectDetectionModelRef.current || !poseNetModelRef.current) {
-                    await loadModels();
-                }
-
-                setIsDetecting(prev => !prev);
-            }
-
-            useEffect(() => {
-                if (isDetecting) {
-                    log('Object, pose, face, behavior, text, and statistical anomaly detection started');
-                    detectAll();
-                } else {
-                    log('Object, pose, face, behavior, text, and statistical anomaly detection stopped');
-                }
-            }, [isDetecting]);
-
-            async function detectAll() {
-                if (!isDetecting) return;
-
-                const ctx = canvasRef.current.getContext('2d');
-                ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-                const imageData = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height);
-                if (!imageData || !imageData.data.length) {
-                    log('Invalid image data from canvas');
-                    return;
-                }
-
-                // Resize the image for Tesseract
-                const scale = 0.5;  // Reduce size by 50%
-                const resizedCanvas = document.createElement('canvas');
-                resizedCanvas.width = canvasRef.current.width * scale;
-                resizedCanvas.height = canvasRef.current.height * scale;
-                const resizedCtx = resizedCanvas.getContext('2d');
-                resizedCtx.drawImage(videoRef.current, 0, 0, resizedCanvas.width, resizedCanvas.height);
-                const resizedImageData = resizedCtx.getImageData(0, 0, resizedCanvas.width, resizedCanvas.height);
-
-                const mat = cv.matFromImageData(imageData);
-
-                try {
-                    const objectPredictions = await objectDetectionModelRef.current.detect(videoRef.current);
-                    const poses = await poseNetModelRef.current.estimateMultiplePoses(videoRef.current);
-                    const motions = detectMotion(mat, objectPredictions);
-                    const anomalies = detectStatisticalAnomalies(motions);
-                    const faceResults = await detectFaces(videoRef.current);
-                    const behaviors = analyzeBehavior(poses);
-                    const extractedText = await extractTextFromImage(resizedImageData);
-                    const vehicleNumbers = await detectVehicleNumbers(objectPredictions, resizedImageData);
-
-                    log(`Detected ${objectPredictions.length} objects, ${poses.length} poses, ${motions.length} motions, ${anomalies.length} anomalies, ${faceResults.length} faces, ${behaviors.length} behaviors, ${extractedText ? 'text' : 'no text'}, and ${vehicleNumbers.length} vehicle numbers`);
-
-                    setUniqueObjects(prev => {
-                        const newSet = new Set(prev);
-                        objectPredictions.forEach(prediction => newSet.add(prediction.class));
-                        return newSet;
-                    });
-
-                    let detectionText = '';
-                    objectPredictions.forEach((prediction, index) => {
-                        const [x, y, width, height] = prediction.bbox;
-                        const color = [255, 0, 0, 255];
-
-                        const point1 = new cv.Point(x, y);
-                        const point2 = new cv.Point(x + width, y + height);
-                        cv.rectangle(mat, point1, point2, color, 2);
-
-                        const text = `${prediction.class} (${Math.round(prediction.score * 100)}%)`;
-                        const org = new cv.Point(x, y - 5);
-                        cv.putText(mat, text, org, cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
-
-                        detectionText += `${index + 1}. ${text} at (${Math.round(x)}, ${Math.round(y)})\n`;
-                    });
-
-                    poses.forEach((pose, index) => {
-                        const color = [0, 255, 0, 255];
-                        pose.keypoints.forEach(keypoint => {
-                            if (keypoint.score > 0.2) {
-                                const { y, x } = keypoint.position;
-                                cv.circle(mat, new cv.Point(x, y), 5, color, -1);
-                            }
-                        });
-
-                        const adjacentKeyPoints = posenet.getAdjacentKeyPoints(pose.keypoints, 0.2);
-                        adjacentKeyPoints.forEach(keypoints => {
-                            cv.line(mat, 
-                                new cv.Point(keypoints[0].position.x, keypoints[0].position.y),
-                                new cv.Point(keypoints[1].position.x, keypoints[1].position.y),
-                                color, 2);
-                        });
-
-                        detectionText += `Person ${index + 1} detected with ${pose.keypoints.length} keypoints\n`;
-                        detectionText += `Behavior: ${behaviors[index]}\n`;
-                    });
-
-                    restrictedAreas.forEach((area, index) => {
-                        cv.rectangle(mat, 
-                            new cv.Point(area.x, area.y),
-                            new cv.Point(area.x + area.width, area.y + area.height),
-                            [255, 255, 0, 255], 2);
-                        cv.putText(mat, `Restricted Area ${index + 1}`, 
-                            new cv.Point(area.x, area.y - 5),
-                            cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 255, 0, 255], 1);
-                    });
-
-                    faceResults.forEach((detection, index) => {
-                        const { detection: { box }, age, gender, expressions } = detection;
-                        const { x, y, width, height } = box;
-                        const color = [0, 0, 255, 255];
-
-                        cv.rectangle(mat, new cv.Point(x, y), new cv.Point(x + width, y + height), color, 2);
-
-                        const text = `Face ${index + 1}: ${Math.round(age)}y ${gender}`;
-                        cv.putText(mat, text, new cv.Point(x, y - 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
-
-                        detectionText += `${text}\n`;
-                    });
-
-                    if (extractedText) {
-                        detectionText += `Extracted Text: ${extractedText}\n`;
-                    }
-
-                    if (vehicleNumbers.length > 0) {
-                        detectionText += `Vehicle Numbers: ${vehicleNumbers.join(', ')}\n`;
-                    }
-
-                    cv.imshow(canvasRef.current, mat);
-                    setDetectionResults(detectionText);
-
-                    const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors, extractedText, vehicleNumbers);
-                    if (nlpDescription) {
-                        setNlpDescription(prev => [{time: new Date().toLocaleTimeString(), description: nlpDescription}, ...prev.slice(0, 49)]);
-                    }
-                } catch (error) {
-                    log('Error during detection: ' + error.message);
-                } finally {
-                    mat.delete();
-                }
-
-                requestAnimationFrame(detectAll);
-            }
-
-            async function extractTextFromImage(imageData) {
-                if (!imageData || !imageData.data || !imageData.data.length) {
-                    log('Invalid image data for text extraction');
-                    return '';
-                }
-                try {
-                    log('Starting text extraction...');
-                    const result = await tesseractWorkerRef.current.recognize(imageData);
-                    const extractedText = result.data.text.trim();
-                    log(`Text extraction completed. Extracted text: ${extractedText}`);
-                    return extractedText;
-                } catch (error) {
-                    log(`Tesseract error: ${error.message}`);
-                    console.error('Text extraction error details:', error);
-                    await resetTesseractWorker();  // Reset worker on failure
-                    return '';
-                }
-            }
-
-            async function recognizeText() {
-                if (!cameraActive) return;
-
-                const canvas = document.createElement('canvas');
-                canvas.width = videoRef.current.videoWidth;
-                canvas.height = videoRef.current.videoHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                
-                try {
-                    const extractedText = await extractTextFromImage(imageData);
-                    log(`Extracted Text: ${extractedText}`);
-                    setDetectionResults(prev => `${prev}\nExtracted Text: ${extractedText}`);
-                } catch (error) {
-                    log(`Error during text recognition: ${error.message}`);
-                }
-            }
-
-            function detectStatisticalAnomalies(motions) {
-                const anomalies = [];
-                motions.forEach(motion => {
-                    if (!speedHistoryRef.current[motion.object]) {
-                        speedHistoryRef.current[motion.object] = [];
-                    }
-                    speedHistoryRef.current[motion.object].push(motion.speed);
-
-                    if (speedHistoryRef.current[motion.object].length > 50) {
-                        speedHistoryRef.current[motion.object].shift();
-                    }
-
-                    if (speedHistoryRef.current[motion.object].length > 10) {
-                        const speeds = speedHistoryRef.current[motion.object];
-                        const mean = ss.mean(speeds);
-                        const stdDev = ss.standardDeviation(speeds);
-                        const zScore = Math.abs((motion.speed - mean) / stdDev);
-
-                        if (zScore > 2) {
-                            anomalies.push(`Unusual ${motion.object} speed`);
-                        }
-                    }
-                });
-
-                return anomalies;
-            }
-
-            function detectMotion(mat, objects) {
-                const motions = [];
-                const prevFrame = new cv.Mat();
-                cv.cvtColor(mat, prevFrame, cv.COLOR_RGBA2GRAY);
-
-                if (motionHistoryRef.current.length > 0) {
-                    const prevMat = motionHistoryRef.current[motionHistoryRef.current.length - 1];
-                    const flow = new cv.Mat();
-                    cv.calcOpticalFlowFarneback(prevMat, prevFrame, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
-
-                    objects.forEach(obj => {
-                        const [x, y, width, height] = obj.bbox.map(Math.round);
-                        const roi = flow.roi(new cv.Rect(x, y, width, height));
-                        const meanFlow = cv.mean(roi);
-                        const speed = Math.sqrt(meanFlow[0] * meanFlow[0] + meanFlow[1] * meanFlow[1]);
-
-                        let behavior = 'standing';
-                        if (speed > 5) behavior = 'walking';
-                        if (speed > 10) behavior = 'running';
-
-                        motions.push({ object: obj.class, behavior, speed });
-
-                        roi.delete();
-                    });
-
-                    flow.delete();
-                }
-
-                motionHistoryRef.current.push(prevFrame);
-                if (motionHistoryRef.current.length > 2) {
-                    motionHistoryRef.current.shift().delete();
-                }
-
-                return motions;
-            }
-
-            async function detectFaces(inputVideo) {
-                try {
-                    const detections = await faceapi.detectAllFaces(inputVideo, new faceapi.SsdMobilenetv1Options())
-                        .withFaceLandmarks()
-                        .withFaceExpressions()
-                        .withAgeAndGender();
-
-                    return detections;
-                } catch (error) {
-                    log('Error during face detection: ' + error.message);
-                    return [];
-                }
-            }
-
-            function analyzeBehavior(poses) {
-                return poses.map((pose, index) => {
-                    const keypoints = pose.keypoints;
-                    const nose = keypoints.find(kp => kp.part === 'nose');
-                    const leftShoulder = keypoints.find(kp => kp.part === 'leftShoulder');
-                    const rightShoulder = keypoints.find(kp => kp.part === 'rightShoulder');
-                    const leftHip = keypoints.find(kp => kp.part === 'leftHip');
-                    const rightHip = keypoints.find(kp => kp.part === 'rightHip');
-                    const leftKnee = keypoints.find(kp => kp.part === 'leftKnee');
-                    const rightKnee = keypoints.find(kp => kp.part === 'rightKnee');
-
-                    if (!nose || !leftShoulder || !rightShoulder || !leftHip || !rightHip || !leftKnee || !rightKnee) {
-                        return 'unknown';
-                    }
-
-                    const verticalSpeed = calculateVerticalSpeed(nose, index);
-                    const hipKneeAngle = calculateAngle(leftHip, leftKnee, rightKnee);
-
-                    let behavior = 'standing';
-
-                    if (verticalSpeed > 20) {
-                        behavior = 'jumping';
-                    } else if (verticalSpeed > 10) {
-                        behavior = 'running';
-                    } else if (verticalSpeed > 2) {
-                        behavior = 'walking';
-                    } else if (hipKneeAngle < 90) {
-                        behavior = 'sitting';
-                    }
-
-                    if (!behaviorHistoryRef.current[index]) {
-                        behaviorHistoryRef.current[index] = [];
-                    }
-                    behaviorHistoryRef.current[index].push(behavior);
-                    if (behaviorHistoryRef.current[index].length > 10) {
-                        behaviorHistoryRef.current[index].shift();
-                    }
-
-                    const recentBehaviors = behaviorHistoryRef.current[index];
-                    const dominantBehavior = recentBehaviors.reduce((a, b) =>
-                        recentBehaviors.filter(v => v === a).length >= recentBehaviors.filter(v => v === b).length ? a : b
-                    );
-
-                    return dominantBehavior;
-                });
-            }
-
-            function calculateVerticalSpeed(keypoint, personIndex) {
-                if (!keypoint) return 0;
-
-                const currentTime = Date.now();
-                const currentY = keypoint.position.y;
-
-                if (!positionHistoryRef.current[personIndex]) {
-                    positionHistoryRef.current[personIndex] = { lastY: currentY, lastTime: currentTime };
-                    return 0;
-                }
-
-                const { lastY, lastTime } = positionHistoryRef.current[personIndex];
-                const timeDiff = (currentTime - lastTime) / 1000;
-                const speed = Math.abs(currentY - lastY) / timeDiff;
-
-                positionHistoryRef.current[personIndex] = { lastY: currentY, lastTime: currentTime };
-
-                return speed;
-            }
-
-            function calculateAngle(pointA, pointB, pointC) {
-                const vectorAB = { x: pointB.position.x - pointA.position.x, y: pointB.position.y - pointA.position.y };
-                const vectorBC = { x: pointC.position.x - pointB.position.x, y: pointC.position.y - pointB.position.y };
-
-                const dotProduct = vectorAB.x * vectorBC.x + vectorAB.y * vectorBC.y;
-                const magnitudeAB = Math.sqrt(vectorAB.x * vectorAB.x + vectorAB.y * vectorAB.y);
-                const magnitudeBC = Math.sqrt(vectorBC.x * vectorBC.x + vectorBC.y * vectorBC.y);
-
-                const angle = Math.acos(dotProduct / (magnitudeAB * magnitudeBC));
-                return angle * (180 / Math.PI);
-            }
-
-            async function detectVehicleNumbers(objects, imageData) {
-                const vehicleNumbers = [];
-                for (const obj of objects) {
-                    if (obj.class === 'car' || obj.class === 'truck') {
-                        const [x, y, width, height] = obj.bbox.map(Math.round);
-                        const licensePlateRegion = new ImageData(
-                            imageData.data.slice((y * imageData.width + x) * 4, ((y + height) * imageData.width + (x + width)) * 4),
-                            width,
-                            height
-                        );
-                        
-                        try {
-                            const result = await tesseractWorkerRef.current.recognize(licensePlateRegion);
-                            const potentialPlateNumber = result.data.text.replace(/[^A-Z0-9]/g, '');
-                            if (potentialPlateNumber.length >= 5) {
-                                vehicleNumbers.push(potentialPlateNumber);
-                            }
-                        } catch (error) {
-                            log(`Error during vehicle number detection: ${error.message}`);
-                            console.error('Vehicle number detection error details:', error);
-                            await resetTesseractWorker();  // Reset worker on failure
-                        }
-                    }
-                }
-                return vehicleNumbers;
-            }
-
-            function generateNLPDescription(objects, poses, anomalies, motions, faceResults, behaviors, extractedText, vehicleNumbers) {
-                let description = '';
-                const newObjects = objects.filter(obj => !prevObjectsRef.current.some(prevObj => prevObj.class === obj.class));
-                const disappearedObjects = prevObjectsRef.current.filter(prevObj => !objects.some(obj => obj.class === prevObj.class));
-
-                if (newObjects.length > 0) {
-                    description += `New objects detected: ${newObjects.map(obj => obj.class).join(', ')}. `;
-                }
-
-                if (disappearedObjects.length > 0) {
-                    description += `Objects no longer visible: ${disappearedObjects.map(obj => obj.class).join(', ')}. `;
-                }
-
-                const movingObjects = [];
-                objects.forEach(obj => {
-                    const prevObj = prevObjectsRef.current.find(pObj => pObj.class === obj.class);
-                    if (prevObj) {
-                        const xDiff = obj.bbox[0] - prevObj.bbox[0];
-                        const yDiff = obj.bbox[1] - prevObj.bbox[1];
-                        if (Math.abs(xDiff) > 10 || Math.abs(yDiff) > 10) {
-                            const xDirection = xDiff > 0 ? 'right' : 'left';
-                            const yDirection = yDiff > 0 ? 'down' : 'up';
-                            movingObjects.push(`${obj.class} moving ${xDirection} and ${yDirection}`);
-                        }
-                    }
-
-                    if (!objectTrackerRef.current[obj.class]) {
-                        objectTrackerRef.current[obj.class] = [];
-                    }
-                    objectTrackerRef.current[obj.class].push({x: obj.bbox[0], y: obj.bbox[1], time: Date.now()});
-                    if (objectTrackerRef.current[obj.class].length > 10) {
-                        objectTrackerRef.current[obj.class].shift();
-                    }
-                });
-
-                if (movingObjects.length > 0) {
-                    description += `Movement detected: ${movingObjects.join(', ')}. `;
-                }
-
-                for (const [objClass, trajectory] of Object.entries(objectTrackerRef.current)) {
-                    if (trajectory.length > 5) {
-                        const startPoint = trajectory[0];
-                        const endPoint = trajectory[trajectory.length - 1];
-                        const xDiff = endPoint.x - startPoint.x;
-                        const yDiff = endPoint.y - startPoint.y;
-                        const timeDiff = (endPoint.time - startPoint.time) / 1000;
-                        const speed = Math.sqrt(xDiff * xDiff + yDiff * yDiff) / timeDiff;
-                        const direction = Math.atan2(yDiff, xDiff) * 180 / Math.PI;
-
-                        const speedDescription = getSpeedDescription(speed);
-                        const directionDescription = getDirectionDescription(direction);
-                        const positionDescription = getPositionDescription(endPoint.x, endPoint.y, canvasRef.current.width, canvasRef.current.height);
-
-                        description += `${objClass} is moving ${speedDescription} ${directionDescription} in the ${positionDescription} of the screen. `;
-                    }
-                }
-
-                if (poses && poses.length > 0) {
-                    description += `Detected ${poses.length} person(s). `;
-                    poses.forEach((pose, index) => {
-                        const keypoints = pose.keypoints;
-                        const leftWrist = keypoints.find(kp => kp.part === 'leftWrist');
-                        const rightWrist = keypoints.find(kp => kp.part === 'rightWrist');
-                        const nose = keypoints.find(kp => kp.part === 'nose');
-
-                        if (leftWrist && rightWrist && nose) {
-                            if (leftWrist.position.y < nose.position.y && rightWrist.position.y < nose.position.y) {
-                                description += `Person ${index + 1} is raising both hands. `;
-                                gestureHistoryRef.current.push('raising hands');
-                            } else if (Math.abs(leftWrist.position.x - rightWrist.position.x) > 100) {
-                                description += `Person ${index + 1} might be waving. `;
-                                gestureHistoryRef.current.push('waving');
-                            }
-                        }
-
-                        restrictedAreas.forEach((area, areaIndex) => {
-                            if (nose.position.x > area.x && nose.position.x < area.x + area.width &&
-                                nose.position.y > area.y && nose.position.y < area.y + area.height) {
-                                description += `ALERT: Person ${index + 1} is in restricted area ${areaIndex + 1}. `;
-                            }
-                        });
-
-                        if (behaviors[index]) {
-                            description += `Person ${index + 1} is ${behaviors[index]}. `;
-                        }
-                    });
-                }
-
-                if (gestureHistoryRef.current.length > 5) {
-                    const recentGestures = gestureHistoryRef.current.slice(-5);
-                    if (recentGestures.filter(g => g === 'waving').length >= 3) {
-                        description += 'Continuous waving detected. ';
-                    } else if (recentGestures.filter(g => g === 'raising hands').length >= 3) {
-                        description += 'Repeated hand raising detected. ';
-                    }
-                    gestureHistoryRef.current = gestureHistoryRef.current.slice(-10);
-                }
-
-                if (anomalies && anomalies.length > 0) {
-                    description += `Statistical anomalies detected: ${anomalies.join(', ')}. `;
-                }
-
-                if (motions && motions.length > 0) {
-                    motions.forEach(motion => {
-                        const speedDescription = getSpeedDescription(motion.speed);
-                        description += `${motion.object} is ${motion.behavior} at ${speedDescription} speed. `;
-                    });
-                }
-
-                if (faceResults && faceResults.length > 0) {
-                    description += `Detected ${faceResults.length} face(s). `;
-                    faceResults.forEach((face, index) => {
-                        description += `Face ${index + 1}: `;
-                        if (face.age) description += `Estimated age: ${Math.round(face.age)}. `;
-                        if (face.gender) description += `Estimated gender: ${face.gender}. `;
-                        if (face.expressions) {
-                            const topExpression = Object.entries(face.expressions).reduce((a, b) => a[1] > b[1] ? a : b);
-                            description += `Dominant expression: ${topExpression[0]}. `;
-                        }
-                    });
-                }
-
-                if (extractedText && extractedText.length > 0) {
-                    description += `Extracted text: ${extractedText}. `;
-                }
-
-                if (vehicleNumbers && vehicleNumbers.length > 0) {
-                    description += `Detected vehicle numbers: ${vehicleNumbers.join(', ')}. `;
-                }
-
-                prevObjectsRef.current = objects;
-                return description.trim();
-            }
-
-            function getSpeedDescription(speed) {
-                if (speed < 1) return "stationary";
-                if (speed < 3) return "slowly";
-                if (speed < 7) return "at medium speed";
-                if (speed < 15) return "quickly";
-                return "very quickly";
-            }
-
-            function getDirectionDescription(degrees) {
-                if (degrees < 0) degrees += 360;
-                if (degrees >= 315 || degrees < 45) return "upwards";
-                if (degrees >= 45 && degrees < 135) return "to the right";
-                if (degrees >= 135 && degrees < 225) return "downwards";
-                return "to the left";
-            }
-
-            function getPositionDescription(x, y, width, height) {
-                const xThird = width / 3;
-                const yThird = height / 3;
-                
-                let vertical = y < yThird ? "top" : (y < 2 * yThird ? "middle" : "bottom");
-                let horizontal = x < xThird ? "left" : (x < 2 * xThird ? "center" : "right");
-                
-                return `${vertical}-${horizontal}`;
-            }
-
-            return (
-                <div className="container">
-                    <h1>Advanced Real-time Object, Pose, Face, Behavior, Text, and Statistical Anomaly Detection</h1>
-                    <div className="video-container">
-                        <video ref={videoRef} style={{display: cameraActive ? 'block' : 'none'}} playsInline></video>
-                        <canvas ref={canvasRef} style={{display: cameraActive ? 'block' : 'none'}}></canvas>
-                        <canvas ref={placeholderCanvasRef} style={{display: cameraActive ? 'none' : 'block'}}></canvas>
-                    </div>
-                    <div className="controls">
-                        <button onClick={toggleCamera}>{cameraActive ? 'Stop Camera' : 'Start Camera'}</button>
-                        <button onClick={switchCamera} disabled={!cameraActive}>Switch Camera</button>
-                        <button onClick={startDetection} disabled={!cameraActive}>{isDetecting ? 'Stop Detection' : 'Start Detection'}</button>
-                        <button onClick={recognizeText} disabled={!cameraActive}>Extract Text</button>
-                    </div>
-                    <div id="total_obj">Total Detected <span id="obj_count">{uniqueObjects.size}</span> objects</div>
-                    <div id="detectionResults">{detectionResults}</div>
-                    <div id="nlpDescription" className="log-container">
-                        <div className="log-content">
-                            {nlpDescription.map((item, index) => (
-                                <p key={index}>{item.time}: {item.description}</p>
-                            ))}
-                        </div>
-                        <button className="expand-btn">Expand</button>
-                    </div>
-                    <div id="log" className="log-container">
-                        <div className="log-content">
-                            {logMessages.map((item, index) => (
-                                <div key={index}>{item.time}: {item.message}</div>
-                            ))}
-                        </div>
-                        <button className="expand-btn">Expand</button>
-                    </div>
-                </div>
-            );
         }
 
-        ReactDOM.render(<App />, document.getElementById('root'));
+        function updateObjectCount() {
+            objCountSpan.textContent = uniqueObjects.size;
+        }
+
+        function generateNLPDescription(objects, poses, anomalies, motions, faceResults, behaviors) {
+            let description = '';
+            const newObjects = objects.filter(obj => !prevObjects.some(prevObj => prevObj.class === obj.class));
+            const disappearedObjects = prevObjects.filter(prevObj => !objects.some(obj => obj.class === prevObj.class));
+
+            if (newObjects.length > 0) {
+                description += `New objects detected: ${newObjects.map(obj => obj.class).join(', ')}. `;
+            }
+
+            if (disappearedObjects.length > 0) {
+                description += `Objects no longer visible: ${disappearedObjects.map(obj => obj.class).join(', ')}. `;
+            }
+
+            const movingObjects = [];
+            objects.forEach(obj => {
+                const prevObj = prevObjects.find(pObj => pObj.class === obj.class);
+                if (prevObj) {
+                    const xDiff = obj.bbox[0] - prevObj.bbox[0];
+                    const yDiff = obj.bbox[1] - prevObj.bbox[1];
+                    if (Math.abs(xDiff) > 10 || Math.abs(yDiff) > 10) {
+                        const xDirection = xDiff > 0 ? 'right' : 'left';
+                        const yDirection = yDiff > 0 ? 'down' : 'up';
+                        movingObjects.push(`${obj.class} moving ${xDirection} and ${yDirection}`);
+                    }
+                }
+
+                // Track object movement
+                if (!objectTracker[obj.class]) {
+                    objectTracker[obj.class] = [];
+                }
+                objectTracker[obj.class].push({x: obj.bbox[0], y: obj.bbox[1], time: Date.now()});
+                if (objectTracker[obj.class].length > 10) {
+                    objectTracker[obj.class].shift();
+                }
+            });
+
+            if (movingObjects.length > 0) {
+                description += `Movement detected: ${movingObjects.join(', ')}. `;
+            }
+
+            // Analyze object trajectories
+            for (const [objClass, trajectory] of Object.entries(objectTracker)) {
+                if (trajectory.length > 5) {
+                    const startPoint = trajectory[0];
+                    const endPoint = trajectory[trajectory.length - 1];
+                    const xDiff = endPoint.x - startPoint.x;
+                    const yDiff = endPoint.y - startPoint.y;
+                    const timeDiff = (endPoint.time - startPoint.time) / 1000; // in seconds
+                    const speed = Math.sqrt(xDiff * xDiff + yDiff * yDiff) / timeDiff;
+                    const direction = Math.atan2(yDiff, xDiff) * 180 / Math.PI;
+
+                    const speedDescription = getSpeedDescription(speed);
+                    const directionDescription = getDirectionDescription(direction);
+                    const positionDescription = getPositionDescription(endPoint.x, endPoint.y, canvas.width, canvas.height);
+
+                    description += `${objClass} is moving ${speedDescription} ${directionDescription} in the ${positionDescription} of the screen. `;
+                }
+            }
+
+            // Add pose recognition and behavior monitoring description
+            if (poses && poses.length > 0) {
+                description += `Detected ${poses.length} person(s). `;
+                poses.forEach((pose, index) => {
+                    const keypoints = pose.keypoints;
+                    const leftWrist = keypoints.find(kp => kp.part === 'leftWrist');
+                    const rightWrist = keypoints.find(kp => kp.part === 'rightWrist');
+                    const nose = keypoints.find(kp => kp.part === 'nose');
+
+                    if (leftWrist && rightWrist && nose) {
+                        if (leftWrist.position.y < nose.position.y && rightWrist.position.y < nose.position.y) {
+                            description += `Person ${index + 1} is raising both hands. `;
+                            gestureHistory.push('raising hands');
+                        } else if (Math.abs(leftWrist.position.x - rightWrist.position.x) > 100) {
+                            description += `Person ${index + 1} might be waving. `;
+                            gestureHistory.push('waving');
+                        }
+                    }
+
+                    // Check for loitering in restricted areas
+                    restrictedAreas.forEach((area, areaIndex) => {
+                        if (nose.position.x > area.x && nose.position.x < area.x + area.width &&
+                            nose.position.y > area.y && nose.position.y < area.y + area.height) {
+                            description += `ALERT: Person ${index + 1} is in restricted area ${areaIndex + 1}. `;
+                        }
+                    });
+
+                    // Add behavior description
+                    if (behaviors[index]) {
+                        description += `Person ${index + 1} is ${behaviors[index]}. `;
+                    }
+                });
+            }
+
+            // Analyze gesture history
+            if (gestureHistory.length > 5) {
+                const recentGestures = gestureHistory.slice(-5);
+                if (recentGestures.filter(g => g === 'waving').length >= 3) {
+                    description += 'Continuous waving detected. ';
+                } else if (recentGestures.filter(g => g === 'raising hands').length >= 3) {
+                    description += 'Repeated hand raising detected. ';
+                }
+                gestureHistory = gestureHistory.slice(-10); // Keep only last 10 gestures
+            }
+
+            // Add anomaly detection description
+            if (anomalies && anomalies.length > 0) {
+                description += `Statistical anomalies detected: ${anomalies.join(', ')}. `;
+            }
+
+            // Add motion detection and behavior classification description
+            if (motions && motions.length > 0) {
+                motions.forEach(motion => {
+                    const speedDescription = getSpeedDescription(motion.speed);
+                    description += `${motion.object} is ${motion.behavior} at ${speedDescription} speed. `;
+                });
+            }
+
+            // Add face analysis results
+            if (faceResults && faceResults.length > 0) {
+                description += `Detected ${faceResults.length} face(s). `;
+                faceResults.forEach((face, index) => {
+                    description += `Face ${index + 1}: `;
+                    if (face.age) description += `Estimated age: ${Math.round(face.age)}. `;
+                    if (face.gender) description += `Estimated gender: ${face.gender}. `;
+                    if (face.expressions) {
+                        const topExpression = Object.entries(face.expressions).reduce((a, b) => a[1] > b[1] ? a : b);
+                        description += `Dominant expression: ${topExpression[0]}. `;
+                    }
+                });
+            }
+
+            prevObjects = objects;
+            return description.trim();
+        }
+
+        function getSpeedDescription(speed) {
+            if (speed < 1) return "stationary";
+            if (speed < 3) return "slowly";
+            if (speed < 7) return "at medium speed";
+            if (speed < 15) return "quickly";
+            return "very quickly";
+        }
+
+        function getDirectionDescription(degrees) {
+            if (degrees < 0) degrees += 360;
+            if (degrees >= 315 || degrees < 45) return "upwards";
+            if (degrees >= 45 && degrees < 135) return "to the right";
+            if (degrees >= 135 && degrees < 225) return "downwards";
+            return "to the left";
+        }
+
+        function getPositionDescription(x, y, width, height) {
+            const xThird = width / 3;
+            const yThird = height / 3;
+            
+            let vertical = y < yThird ? "top" : (y < 2 * yThird ? "middle" : "bottom");
+            let horizontal = x < xThird ? "left" : (x < 2 * xThird ? "center" : "right");
+            
+            return `${vertical}-${horizontal}`;
+        }
+
+        async function loadModels() {
+            try {
+                log('Loading COCO-SSD model...');
+                objectDetectionModel = await cocoSsd.load();
+                log('COCO-SSD model loaded successfully');
+
+                log('Loading PoseNet model...');
+                poseNetModel = await posenet.load();
+                log('PoseNet model loaded successfully');
+
+                log('Loading Face-API.js models...');
+                const modelPath = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights/';
+
+                log('Loading SSD MobileNetv1 face detection model...');
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(modelPath + 'ssd_mobilenetv1_model-weights_manifest.json');
+                log('SSD MobileNetv1 face detection model loaded successfully');
+
+                log('Loading Face Landmark Detection model...');
+                await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath + 'face_landmark_68_model-weights_manifest.json');
+                log('Face Landmark Detection model loaded successfully');
+
+                log('Loading Face Recognition model...');
+                await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath + 'face_recognition_model-weights_manifest.json');
+                log('Face Recognition model loaded successfully');
+
+                log('Loading Face Expression Detection model...');
+                await faceapi.nets.faceExpressionNet.loadFromUri(modelPath + 'face_expression_model-weights_manifest.json');
+                log('Face Expression Detection model loaded successfully');
+
+                log('Loading Age and Gender Estimation model...');
+                await faceapi.nets.ageGenderNet.loadFromUri(modelPath + 'age_gender_model-weights_manifest.json');
+                log('Age and Gender Estimation model loaded successfully');
+
+                log('All Face-API.js models loaded successfully');
+            } catch (error) {
+                log('Error loading models: ' + error.message);
+                console.error('Error details:', error);
+            }
+        }
+
+        async function toggleCamera() {
+            if (stream) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        }
+
+        async function startCamera() {
+            try {
+                const constraints = {
+                    video: {
+                        facingMode: currentCameraFacingMode,
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                };
+
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                await video.play();
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                placeholderCanvas.width = video.videoWidth;
+                placeholderCanvas.height = video.videoHeight;
+                log(`Video dimensions: ${video.videoWidth}x${video.videoHeight}`);
+
+                toggleCameraButton.textContent = 'Stop Camera';
+                switchCameraButton.disabled = false;
+                startDetectionButton.disabled = false;
+                video.style.display = 'block';
+                canvas.style.display = 'block';
+                placeholderCanvas.style.display = 'none';
+            } catch (error) {
+                log('Error starting camera: ' + error.message);
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                video.srcObject = null;
+                toggleCameraButton.textContent = 'Start Camera';
+                switchCameraButton.disabled = true;
+                startDetectionButton.disabled = true;
+                video.style.display = 'none';
+                canvas.style.display = 'none';
+                placeholderCanvas.style.display = 'block';
+                placeholderCtx.drawImage(canvas, 0, 0);
+                log('Camera stopped');
+            }
+        }
+
+        function switchCamera() {
+            currentCameraFacingMode = currentCameraFacingMode === 'environment' ? 'user' : 'environment';
+            if (stream) {
+                stopCamera();
+                startCamera();
+            }
+            log(`Switched to ${currentCameraFacingMode} camera`);
+        }
+
+        async function startDetection() {
+            if (!objectDetectionModel || !poseNetModel) {
+                await loadModels();
+            }
+
+            isDetecting = !isDetecting;
+            startDetectionButton.textContent = isDetecting ? 'Stop Detection' : 'Start Detection';
+
+            if (isDetecting) {
+                log('Object, pose, face, behavior, and statistical anomaly detection started');
+                detectAll();
+            } else {
+                log('Object, pose, face, behavior, and statistical anomaly detection stopped');
+            }
+        }
+
+        async function detectAll() {
+            if (!isDetecting) return;
+
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const mat = cv.matFromImageData(imageData);
+
+            try {
+                const objectPredictions = await objectDetectionModel.detect(video);
+                const poses = await poseNetModel.estimateMultiplePoses(video);
+                const motions = detectMotion(mat, objectPredictions);
+                const anomalies = detectStatisticalAnomalies(motions);
+                const faceResults = await detectFaces(video);
+                const behaviors = analyzeBehavior(poses);
+
+                log(`Detected ${objectPredictions.length} objects, ${poses.length} poses, ${motions.length} motions, ${anomalies.length} anomalies, ${faceResults.length} faces, and ${behaviors.length} behaviors`);
+
+                objectPredictions.forEach(prediction => {
+                    uniqueObjects.add(prediction.class);
+                });
+                updateObjectCount();
+
+                let detectionText = '';
+                objectPredictions.forEach((prediction, index) => {
+                    const [x, y, width, height] = prediction.bbox;
+                    const color = [255, 0, 0, 255]; // Red color for object bounding box
+
+                    const point1 = new cv.Point(x, y);
+                    const point2 = new cv.Point(x + width, y + height);
+                    cv.rectangle(mat, point1, point2, color, 2);
+
+                    const text = `${prediction.class} (${Math.round(prediction.score * 100)}%)`;
+                    const org = new cv.Point(x, y - 5);
+                    cv.putText(mat, text, org, cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
+
+                    detectionText += `${index + 1}. ${text} at (${Math.round(x)}, ${Math.round(y)})\n`;
+                });
+
+                // Draw pose keypoints and skeletons
+                poses.forEach((pose, index) => {
+                    const color = [0, 255, 0, 255]; // Green color for pose
+                    pose.keypoints.forEach(keypoint => {
+                        if (keypoint.score > 0.2) {
+                            const { y, x } = keypoint.position;
+                            cv.circle(mat, new cv.Point(x, y), 5, color, -1);
+                        }
+                    });
+
+                    // Draw skeleton
+                    const adjacentKeyPoints = posenet.getAdjacentKeyPoints(pose.keypoints, 0.2);
+                    adjacentKeyPoints.forEach(keypoints => {
+                        cv.line(mat, 
+                            new cv.Point(keypoints[0].position.x, keypoints[0].position.y),
+                            new cv.Point(keypoints[1].position.x, keypoints[1].position.y),
+                            color, 2);
+                    });
+
+                    detectionText += `Person ${index + 1} detected with ${pose.keypoints.length} keypoints\n`;
+                    detectionText += `Behavior: ${behaviors[index]}\n`;
+                });
+
+                // Draw restricted areas
+                restrictedAreas.forEach((area, index) => {
+                    cv.rectangle(mat, 
+                        new cv.Point(area.x, area.y),
+                        new cv.Point(area.x + area.width, area.y + area.height),
+                        [255, 255, 0, 255], 2); // Yellow color for restricted areas
+                    cv.putText(mat, `Restricted Area ${index + 1}`, 
+                        new cv.Point(area.x, area.y - 5),
+                        cv.FONT_HERSHEY_SIMPLEX, 0.5, [255, 255, 0, 255], 1);
+                });
+
+                // Draw face detection results
+                faceResults.forEach((detection, index) => {
+                    const { detection: { box }, age, gender, expressions } = detection;
+                    const { x, y, width, height } = box;
+                    const color = [0, 0, 255, 255]; // Blue color for face bounding box
+
+                    cv.rectangle(mat, new cv.Point(x, y), new cv.Point(x + width, y + height), color, 2);
+
+                    const text = `Face ${index + 1}: ${Math.round(age)}y ${gender}`;
+                    cv.putText(mat, text, new cv.Point(x, y - 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
+
+                    detectionText += `${text}\n`;
+                });
+
+                cv.imshow(canvas, mat);
+                detectionResultsDiv.textContent = detectionText;
+
+                const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors);
+                if (nlpDescription) {
+                    const descriptionElement = document.createElement('p');
+                    descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
+                    document.querySelector('#nlpDescription .log-content').insertBefore(descriptionElement, document.querySelector('#nlpDescription .log-content').firstChild);
+                    if (document.querySelector('#nlpDescription .log-content').childElementCount > 50) {
+                        document.querySelector('#nlpDescription .log-content').removeChild(document.querySelector('#nlpDescription .log-content').lastChild);
+                    }
+                }
+            } catch (error) {
+                log('Error during detection: ' + error.message);
+            } finally {
+                mat.delete();
+            }
+
+            requestAnimationFrame(detectAll);
+        }
+
+        function detectStatisticalAnomalies(motions) {
+            const anomalies = [];
+            motions.forEach(motion => {
+                if (!speedHistory[motion.object]) {
+                    speedHistory[motion.object] = [];
+                }
+                speedHistory[motion.object].push(motion.speed);
+
+                // Keep only the last 50 speed records
+                if (speedHistory[motion.object].length > 50) {
+                    speedHistory[motion.object].shift();
+                }
+
+                if (speedHistory[motion.object].length > 10) {
+                    const speeds = speedHistory[motion.object];
+                    const mean = ss.mean(speeds);
+                    const stdDev = ss.standardDeviation(speeds);
+                    const zScore = Math.abs((motion.speed - mean) / stdDev);
+
+                    if (zScore > 2) {
+                        anomalies.push(`Unusual ${motion.object} speed`);
+                    }
+                }
+            });
+
+            return anomalies;
+        }
+
+        function detectMotion(mat, objects) {
+            const motions = [];
+            const prevFrame = new cv.Mat();
+            cv.cvtColor(mat, prevFrame, cv.COLOR_RGBA2GRAY);
+
+            if (motionHistory.length > 0) {
+                const prevMat = motionHistory[motionHistory.length - 1];
+                const flow = new cv.Mat();
+                cv.calcOpticalFlowFarneback(prevMat, prevFrame, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
+
+                objects.forEach(obj => {
+                    const [x, y, width, height] = obj.bbox.map(Math.round);
+                    const roi = flow.roi(new cv.Rect(x, y, width, height));
+                    const meanFlow = cv.mean(roi);
+                    const speed = Math.sqrt(meanFlow[0] * meanFlow[0] + meanFlow[1] * meanFlow[1]);
+
+                    let behavior = 'standing';
+                    if (speed > 5) behavior = 'walking';
+                    if (speed > 10) behavior = 'running';
+
+                    motions.push({ object: obj.class, behavior, speed });
+
+                    roi.delete();
+                });
+
+                flow.delete();
+            }
+
+            motionHistory.push(prevFrame);
+            if (motionHistory.length > 2) {
+                motionHistory.shift().delete();
+            }
+
+            return motions;
+        }
+
+        async function detectFaces(inputVideo) {
+            try {
+                const detections = await faceapi.detectAllFaces(inputVideo, new faceapi.SsdMobilenetv1Options())
+                    .withFaceLandmarks()
+                    .withFaceExpressions()
+                    .withAgeAndGender();
+
+                return detections;
+            } catch (error) {
+                log('Error during face detection: ' + error.message);
+                return [];
+            }
+        }
+
+        function analyzeBehavior(poses) {
+            return poses.map((pose, index) => {
+                const keypoints = pose.keypoints;
+                const nose = keypoints.find(kp => kp.part === 'nose');
+                const leftShoulder = keypoints.find(kp => kp.part === 'leftShoulder');
+                const rightShoulder = keypoints.find(kp => kp.part === 'rightShoulder');
+                const leftHip = keypoints.find(kp => kp.part === 'leftHip');
+                const rightHip = keypoints.find(kp => kp.part === 'rightHip');
+                const leftKnee = keypoints.find(kp => kp.part === 'leftKnee');
+                const rightKnee = keypoints.find(kp => kp.part === 'rightKnee');
+
+                if (!nose || !leftShoulder || !rightShoulder || !leftHip || !rightHip || !leftKnee || !rightKnee) {
+                    return 'unknown';
+                }
+
+                const verticalSpeed = calculateVerticalSpeed(nose, index);
+                const hipKneeAngle = calculateAngle(leftHip, leftKnee, rightKnee);
+
+                let behavior = 'standing';
+
+                if (verticalSpeed > 20) {
+                    behavior = 'jumping';
+                } else if (verticalSpeed > 10) {
+                    behavior = 'running';
+                } else if (verticalSpeed > 2) {
+                    behavior = 'walking';
+                } else if (hipKneeAngle < 90) {
+                    behavior = 'sitting';
+                }
+
+                // Update behavior history
+                if (!behaviorHistory[index]) {
+                    behaviorHistory[index] = [];
+                }
+                behaviorHistory[index].push(behavior);
+                if (behaviorHistory[index].length > 10) {
+                    behaviorHistory[index].shift();
+                }
+
+                // Smooth out behavior classification
+                const recentBehaviors = behaviorHistory[index];
+                const dominantBehavior = recentBehaviors.reduce((a, b) =>
+                    recentBehaviors.filter(v => v === a).length >= recentBehaviors.filter(v => v === b).length ? a : b
+                );
+
+                return dominantBehavior;
+            });
+        }
+
+        function calculateVerticalSpeed(keypoint, personIndex) {
+            if (!keypoint) return 0;
+
+            const currentTime = Date.now();
+            const currentY = keypoint.position.y;
+
+            if (!positionHistory[personIndex]) {
+                positionHistory[personIndex] = { lastY: currentY, lastTime: currentTime };
+                return 0;
+            }
+
+            const { lastY, lastTime } = positionHistory[personIndex];
+            const timeDiff = (currentTime - lastTime) / 1000; // Convert to seconds
+            const speed = Math.abs(currentY - lastY) / timeDiff;
+
+            positionHistory[personIndex] = { lastY: currentY, lastTime: currentTime };
+
+            return speed;
+        }
+
+        function calculateAngle(pointA, pointB, pointC) {
+            const vectorAB = { x: pointB.position.x - pointA.position.x, y: pointB.position.y - pointA.position.y };
+            const vectorBC = { x: pointC.position.x - pointB.position.x, y: pointC.position.y - pointB.position.y };
+
+            const dotProduct = vectorAB.x * vectorBC.x + vectorAB.y * vectorBC.y;
+            const magnitudeAB = Math.sqrt(vectorAB.x * vectorAB.x + vectorAB.y * vectorAB.y);
+            const magnitudeBC = Math.sqrt(vectorBC.x * vectorBC.x + vectorBC.y * vectorBC.y);
+
+            const angle = Math.acos(dotProduct / (magnitudeAB * magnitudeBC));
+            return angle * (180 / Math.PI); // Convert to degrees
+        }
+
+        video = document.getElementById('video');
+        canvas = document.getElementById('canvas');
+        ctx = canvas.getContext('2d');
+        placeholderCanvas = document.getElementById('placeholder-canvas');
+        placeholderCtx = placeholderCanvas.getContext('2d');
+
+        toggleCameraButton.addEventListener('click', toggleCamera);
+        switchCameraButton.addEventListener('click', switchCamera);
+        startDetectionButton.addEventListener('click', startDetection);
+
+        // Initialize buttons
+        switchCameraButton.disabled = true;
+        startDetectionButton.disabled = true;
+
+        // Expand functionality for log and nlpDescription
+        document.querySelectorAll('.expand-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const parentDiv = this.closest('.log-container');
+                parentDiv.classList.toggle('expanded');
+                this.textContent = parentDiv.classList.contains('expanded') ? 'Collapse' : 'Expand';
+            });
+        });
+
+        // Load OpenCV.js
+        function onOpenCvReady() {
+            log('OpenCV.js is ready');
+            loadModels();
+        }
     </script>
 </body>
 </html>
