@@ -761,9 +761,9 @@
                 descriptionElement.textContent = `${new Date().toLocaleTimeString()}: QR Code detected: ${qrContent}`;
                 document.querySelector('#nlpDescription .log-content').insertBefore(descriptionElement, document.querySelector('#nlpDescription .log-content').firstChild);
                 
-                // Optionally, stop scanning after successful detection
-                // isScanning = false;
-                // scanQRButton.textContent = 'Scan QR Code';
+                // stopped scanning after successful detection
+                isScanning = false;
+                scanQRButton.textContent = 'Scan QR Code';
             }
 
             requestAnimationFrame(scanQR);
