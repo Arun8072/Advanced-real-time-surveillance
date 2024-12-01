@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Real-time Object, Pose, Face, Behavior, Statistical Anomaly, and QR Code Detection</title>
+    <title>Advanced Real-time Object, Pose, Face, Behavior, Statistical Anomaly, QR Code Detection, and Text Extraction</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -119,7 +119,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Advanced Real-time Object, Pose, Face, Behavior, Statistical Anomaly, and QR Code Detection</h1>
+        <h1>Advanced Real-time Object, Pose, Face, Behavior, Statistical Anomaly, QR Code Detection, and Text Extraction</h1>
         <div class="video-container">
             <video id="video" playsinline></video>
             <canvas id="canvas"></canvas>
@@ -130,6 +130,7 @@
             <button id="switchCamera">Switch Camera</button>
             <button id="startDetection">Start Detection</button>
             <button id="scanQRButton">Scan QR Code</button>
+            <button id="extractTextButton">Extract Text</button>
         </div>
         <div id="total_obj">Total Detected <span id="obj_count">0</span> objects</div>
         <div id="detectionResults"></div>
@@ -150,10 +151,12 @@
     <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.3.1/dist/jsQR.min.js"></script>
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js'></script>
     <script>
         let video, canvas, ctx, placeholderCanvas, placeholderCtx, objectDetectionModel, poseNetModel, stream;
         let isDetecting = false;
         let isScanning = false;
+        let isExtractingText = false;
         let currentCameraFacingMode = 'environment';
         const objCountSpan = document.getElementById('obj_count');
         const nlpDescriptionDiv = document.getElementById('nlpDescription');
@@ -174,6 +177,7 @@
         const switchCameraButton = document.getElementById('switchCamera');
         const startDetectionButton = document.getElementById('startDetection');
         const scanQRButton = document.getElementById('scanQRButton');
+        const extractTextButton = document.getElementById('extractTextButton');
         const detectionResultsDiv = document.getElementById('detectionResults');
         const logDiv = document.getElementById('log');
 
@@ -181,9 +185,7 @@
             console.log(message);
             const logEntry = document.createElement('div');
             logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
-            
             document.querySelector('#log .log-content').appendChild(logEntry);
-            
         }
 
         function updateObjectCount() {
@@ -342,7 +344,7 @@
             return `${vertical}-${horizontal}`;
         }
 
-        async function loadModels() {
+        async functionloadModels() {
             try {
                 log('Loading COCO-SSD model...');
                 objectDetectionModel = await cocoSsd.load();
@@ -414,6 +416,7 @@
                 switchCameraButton.disabled = false;
                 startDetectionButton.disabled = false;
                 scanQRButton.disabled = false;
+                extractTextButton.disabled = false;
                 video.style.display = 'block';
                 canvas.style.display = 'block';
                 placeholderCanvas.style.display = 'none';
@@ -431,6 +434,7 @@
                 switchCameraButton.disabled = true;
                 startDetectionButton.disabled = true;
                 scanQRButton.disabled = true;
+                extractTextButton.disabled = true;
                 video.style.display = 'none';
                 canvas.style.display = 'none';
                 placeholderCanvas.style.display = 'block';
@@ -557,9 +561,7 @@
                 if (nlpDescription) {
                     const descriptionElement = document.createElement('p');
                     descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
-                     document.querySelector('#nlpDescription .log-content').appendChild(descriptionElement);
-                
-                    
+                    document.querySelector('#nlpDescription .log-content').appendChild(descriptionElement);
                 }
             } catch (error) {
                 log('Error during detection: ' + error.message);
@@ -758,7 +760,7 @@
                 const qrContent = code.data;
                 const descriptionElement = document.createElement('p');
                 descriptionElement.textContent = `${new Date().toLocaleTimeString()}: QR Code detected: ${qrContent}`;
-                document.querySelector('#nlpDescription .log-content').insertBefore(descriptionElement, document.querySelector('#nlpDescription .log-content').firstChild);
+                document.querySelector('#nlpDescription .log-content').appendChild(descriptionElement);
                 
                 // stopped scanning after successful detection
                 isScanning = false;
@@ -766,6 +768,46 @@
             }
 
             requestAnimationFrame(scanQR);
+        }
+
+        async function extractText() {
+            if (!stream) {
+                log('Please start the camera first');
+                return;
+            }
+
+            isExtractingText = !isExtractingText;
+            extractTextButton.textContent = isExtractingText ? 'Stop Extracting Text' : 'Extract Text';
+
+            if (isExtractingText) {
+                log('Text extraction started');
+                performTextExtraction();
+            } else {
+                log('Text extraction stopped');
+            }
+        }
+
+        async function performTextExtraction() {
+            if (!isExtractingText) return;
+
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = canvas.toDataURL('image/png');
+
+            try {
+                const result = await Tesseract.recognize(imageData, 'eng', { logger: m => console.log(m) });
+                const extractedText = result.data.text.trim();
+
+                if (extractedText) {
+                    log('Text extracted: ' + extractedText);
+                    const descriptionElement = document.createElement('p');
+                    descriptionElement.textContent = `${new Date().toLocaleTimeString()}: Extracted Text: ${extractedText}`;
+                    document.querySelector('#nlpDescription .log-content').appendChild(descriptionElement);
+                }
+            } catch (error) {
+                log('Error during text extraction: ' + error.message);
+            }
+
+            setTimeout(performTextExtraction, 5000); // Perform text extraction every 5 seconds
         }
 
         video = document.getElementById('video');
@@ -778,11 +820,13 @@
         switchCameraButton.addEventListener('click', switchCamera);
         startDetectionButton.addEventListener('click', startDetection);
         scanQRButton.addEventListener('click', scanQRCode);
+        extractTextButton.addEventListener('click', extractText);
 
         // Initialize buttons
         switchCameraButton.disabled = true;
         startDetectionButton.disabled = true;
         scanQRButton.disabled = true;
+        extractTextButton.disabled = true;
 
         // Expand functionality for log and nlpDescription
         document.querySelectorAll('.expand-btn').forEach(btn => {
@@ -801,4 +845,3 @@
     </script>
 </body>
 </html>
-
