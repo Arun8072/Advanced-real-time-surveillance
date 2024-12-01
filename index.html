@@ -115,6 +115,12 @@
         .log-content {
             overflow-y: auto;
         }
+        #extractTextButton {
+            background-color: #9c27b0;
+        }
+        #extractTextButton:hover {
+            background-color: #7b1fa2;
+        }
     </style>
 </head>
 <body>
@@ -151,12 +157,11 @@
     <script src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" async></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.3.1/dist/jsQR.min.js"></script>
-    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js'></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
     <script>
         let video, canvas, ctx, placeholderCanvas, placeholderCtx, objectDetectionModel, poseNetModel, stream;
         let isDetecting = false;
         let isScanning = false;
-        let isExtractingText = false;
         let currentCameraFacingMode = 'environment';
         const objCountSpan = document.getElementById('obj_count');
         const nlpDescriptionDiv = document.getElementById('nlpDescription');
@@ -192,7 +197,7 @@
             objCountSpan.textContent = uniqueObjects.size;
         }
 
-        function generateNLPDescription(objects, poses, anomalies, motions, faceResults, behaviors) {
+        function generateNLPDescription(objects, poses, anomalies, motions, faceResults, behaviors, extractedText) {
             let description = '';
             const newObjects = objects.filter(obj => !prevObjects.some(prevObj => prevObj.class === obj.class));
             const disappearedObjects = prevObjects.filter(prevObj => !objects.some(obj => obj.class === prevObj.class));
@@ -314,6 +319,10 @@
                 });
             }
 
+            if (extractedText) {
+                description += `Extracted text: ${extractedText}. `;
+            }
+
             prevObjects = objects;
             return description.trim();
         }
@@ -344,7 +353,7 @@
             return `${vertical}-${horizontal}`;
         }
 
-        async functionloadModels() {
+        async function loadModels() {
             try {
                 log('Loading COCO-SSD model...');
                 objectDetectionModel = await cocoSsd.load();
@@ -557,7 +566,7 @@
                 cv.imshow(canvas, mat);
                 detectionResultsDiv.textContent = detectionText;
 
-                const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors);
+                const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors, '');
                 if (nlpDescription) {
                     const descriptionElement = document.createElement('p');
                     descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
@@ -776,38 +785,27 @@
                 return;
             }
 
-            isExtractingText = !isExtractingText;
-            extractTextButton.textContent = isExtractingText ? 'Stop Extracting Text' : 'Extract Text';
-
-            if (isExtractingText) {
-                log('Text extraction started');
-                performTextExtraction();
-            } else {
-                log('Text extraction stopped');
-            }
-        }
-
-        async function performTextExtraction() {
-            if (!isExtractingText) return;
-
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageData = canvas.toDataURL('image/png');
+            extractTextButton.disabled = true;
+            log('Extracting text...');
 
             try {
-                const result = await Tesseract.recognize(imageData, 'eng', { logger: m => console.log(m) });
+                const imageData = canvas.toDataURL('image/jpeg');
+                const result = await Tesseract.recognize(imageData, 'eng');
                 const extractedText = result.data.text.trim();
 
                 if (extractedText) {
-                    log('Text extracted: ' + extractedText);
                     const descriptionElement = document.createElement('p');
-                    descriptionElement.textContent = `${new Date().toLocaleTimeString()}: Extracted Text: ${extractedText}`;
+                    descriptionElement.textContent = `${new Date().toLocaleTimeString()}: Extracted text: ${extractedText}`;
                     document.querySelector('#nlpDescription .log-content').appendChild(descriptionElement);
+                    log('Text extracted successfully');
+                } else {
+                    log('No text found in the image');
                 }
             } catch (error) {
-                log('Error during text extraction: ' + error.message);
+                log('Error extracting text: ' + error.message);
+            } finally {
+                extractTextButton.disabled = false;
             }
-
-            setTimeout(performTextExtraction, 5000); // Perform text extraction every 5 seconds
         }
 
         video = document.getElementById('video');
@@ -845,3 +843,4 @@
     </script>
 </body>
 </html>
+
