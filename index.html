@@ -115,12 +115,7 @@
         .log-content {
             overflow-y: auto;
         }
-        #extractTextButton {
-            background-color: #9c27b0;
-        }
-        #extractTextButton:hover {
-            background-color: #7b1fa2;
-        }
+        
     </style>
 </head>
 <body>
@@ -190,7 +185,9 @@
             console.log(message);
             const logEntry = document.createElement('div');
             logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            
             document.querySelector('#log .log-content').appendChild(logEntry);
+            
         }
 
         function updateObjectCount() {
@@ -566,11 +563,13 @@
                 cv.imshow(canvas, mat);
                 detectionResultsDiv.textContent = detectionText;
 
-                const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors, '');
+                 const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors, '');
                 if (nlpDescription) {
                     const descriptionElement = document.createElement('p');
                     descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
-                    document.querySelector('#nlpDescription .log-content').appendChild(descriptionElement);
+                     document.querySelector('#nlpDescription .log-content').appendChild(descriptionElement);
+                
+                    
                 }
             } catch (error) {
                 log('Error during detection: ' + error.message);
@@ -868,4 +867,3 @@
     </script>
 </body>
 </html>
-
