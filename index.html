@@ -207,6 +207,18 @@
            
         }
 
+// Update and append unique objects
+function updateObjectDisplay() {
+    detectionResultsDiv.innerHTML = ''; // Clear the existing content
+    let serial = 1;
+
+    uniqueObjects.forEach(obj => {
+        const objectElement = document.createElement('div');
+        objectElement.textContent = `${serial}. ${obj}`;
+        detectionResultsDiv.appendChild(objectElement);
+        serial++;
+    });
+}
         // Update object count
         function updateObjectCount() {
             objCountSpan.textContent = uniqueObjects.size;
@@ -547,6 +559,8 @@ async function loadModels() {
                     uniqueObjects.add(prediction.class);
                 });
                 updateObjectCount();
+                // Update the display with unique objects
+updateObjectDisplay(); 
 
                 let detectionText = '';
                 objectPredictions.forEach((prediction, index) => {
@@ -613,7 +627,7 @@ async function loadModels() {
                 });
 
                 cv.imshow(canvas, mat);
-                detectionResultsDiv.textContent = detectionText;
+               // detectionResultsDiv.textContent = detectionText;
 
                  // Generate and display NLP description
                  const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors, '');
