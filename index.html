@@ -321,14 +321,24 @@ if (poses && poses.length > 0) {
 
 
             if (gestureHistory.length > 5) {
-                const recentGestures = gestureHistory.slice(-5);
-                if (recentGestures.filter(g => g === 'waving').length >= 3) {
-                    description += 'Continuous waving detected. ';
-                } else if (recentGestures.filter(g => g === 'raising hands').length >= 3) {
-                    description += 'Repeated hand raising detected. ';
-                }
-                gestureHistory = gestureHistory.slice(-10);
-            }
+    const recentGestures = gestureHistory.slice(-5);
+    const gestureCounts = recentGestures.reduce((counts, gesture) => {
+        counts[gesture] = (counts[gesture] || 0) + 1;
+        return counts;
+    }, {});
+
+    // Check for specific patterns in recent gestures
+    if (gestureCounts['waving'] >= 3) {
+        description += 'Continuous waving detected.\n';
+    } 
+    if (gestureCounts['raising hands'] >= 3) {
+        description += 'Repeated hand raising detected.\n';
+    }
+
+    // Retain only the last 10 gestures in the history
+    gestureHistory = gestureHistory.slice(-10);
+}
+
 
             if (anomalies && anomalies.length > 0) {
                 description += `Statistical anomalies detected: ${anomalies.join(', ')}. `;
