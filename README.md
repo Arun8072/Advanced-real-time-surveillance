@@ -15,16 +15,22 @@ This application is a cutting-edge, real-time AI vision system that integrates m
 - **Text Extraction**: Performs Optical Character Recognition (OCR) on video frames.
 - **Multi-model AI Integration**: Seamlessly combines multiple AI models for comprehensive analysis.
 - **Responsive UI**: Provides camera controls and real-time visualization of AI outputs.
+- **Language Model**: Natural language descriptions of detected elements.
+- **Logging**: Logging of detection results and events.
 
 ## Technologies Used
-
-- TensorFlow.js
-- COCO-SSD (for object detection)
-- PoseNet (for pose estimation)
-- Face-API.js (for face detection and analysis)
-- OpenCV.js (for image processing)
-- jsQR (for QR code scanning)
-- Tesseract.js (for text extraction)
+- HTML5 for structure
+- JavaScript (ES6+) for logic and interactivity
+- CSS3 for styling
+- TensorFlow.js for machine learning operations
+- Various AI models and libraries:
+  - TensorFlow.js
+  - COCO-SSD (for object detection)
+  - PoseNet (for pose estimation)
+  - Face-API.js (for face detection and analysis)
+  - OpenCV.js (for image processing)
+  - jsQR (for QR code scanning)
+  - Tesseract.js (for text extraction)
 
 ## Getting Started
 
