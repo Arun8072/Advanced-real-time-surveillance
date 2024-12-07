@@ -235,7 +235,7 @@ function updateObjectDisplay() {
             }
 
             if (disappearedObjects.length > 0) {
-                description += `${disappearedObjects.map(obj => obj.class).join(', ')} - Objects no longer visible. `;
+                description += `${disappearedObjects.map(obj => obj.class).join(', ')} - no longer visible. `;
             }
 
             const movingObjects = [];
@@ -376,10 +376,10 @@ if (poses && poses.length > 0) {
         // Helper functions for descriptions
         function getSpeedDescription(speed) {
     if (speed < 1) return "stationary";
-    if (speed < 3) return "moving slowly";
-    if (speed < 7) return "moving at a medium pace";
-    if (speed < 15) return "moving quickly";
-    return "moving at an unknown speed";
+    if (speed < 3) return "slowly";
+    if (speed < 7) return "at a medium pace";
+    if (speed < 15) return "quickly";
+    return "in a unknown speed";
 }
 
 
@@ -621,8 +621,8 @@ updateObjectDisplay();
                             color, 2);
                     });
 
-                    detectionText += `Person ${index + 1} detected with ${pose.keypoints.length} keypoints\n`;
-                    detectionText += `Behavior: ${behaviors[index]}\n`;
+                  //  detectionText += `Person ${index + 1} detected with ${pose.keypoints.length} keypoints\n`;
+                   // detectionText += `Behavior: ${behaviors[index]}\n`;
                 });
 
                 // Draw restricted areas
