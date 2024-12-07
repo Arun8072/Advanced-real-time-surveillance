@@ -213,8 +213,8 @@ function updateObjectDisplay() {
     let serial = 1;
 
     uniqueObjects.forEach(obj => {
-        const objectElement = document.createElement('div');
-        objectElement.textContent = `${serial}. ${obj}`;
+        const objectElement = document.createElement('span');
+        objectElement.textContent = ` ${serial}. ${obj} `;
         detectionResultsDiv.appendChild(objectElement);
         serial++;
     });
@@ -575,7 +575,7 @@ updateObjectDisplay();
                     const org = new cv.Point(x, y - 5);
                     cv.putText(mat, text, org, cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
 
-                    detectionText += `${index + 1}. ${text} at (${Math.round(x)}, ${Math.round(y)})\n`;
+                    // detectionText += `${index + 1}. ${text} at (${Math.round(x)}, ${Math.round(y)})\n`;
                 });
 
                 // Draw pose keypoints and skeletons
@@ -630,7 +630,7 @@ updateObjectDisplay();
                // detectionResultsDiv.textContent = detectionText;
 
                  // Generate and display NLP description
-                 const nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors, '');
+                 var nlpDescription = generateNLPDescription(objectPredictions, poses, anomalies, motions, faceResults, behaviors, '');
                 if (nlpDescription) {
                     const descriptionElement = document.createElement('p');
                     descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
@@ -643,6 +643,7 @@ updateObjectDisplay();
                 log('Error during detection: ' + error.message);
             } finally {
                 mat.delete();
+                nlpDescription= '';
             }
 
             requestAnimationFrame(detectAll);
