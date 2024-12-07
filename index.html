@@ -235,7 +235,7 @@ function updateObjectDisplay() {
             }
 
             if (disappearedObjects.length > 0) {
-                description += `Objects no longer visible: ${disappearedObjects.map(obj => obj.class).join(', ')}. `;
+                description += `${disappearedObjects.map(obj => obj.class).join(', ')} - Objects no longer visible. `;
             }
 
             const movingObjects = [];
@@ -278,7 +278,8 @@ function updateObjectDisplay() {
                     const directionDescription = getDirectionDescription(direction);
                     const positionDescription = getPositionDescription(endPoint.x, endPoint.y, canvas.width, canvas.height);
 
-                    description += `${objClass} is moving ${speedDescription} ${directionDescription} in the ${positionDescription} of the screen. `;
+                         description += `The ${objClass} is ${speedDescription} ${directionDescription} in the ${positionDescription} of the screen.\n`;
+    
                 }
             }
 
@@ -287,7 +288,7 @@ if (poses && poses.length > 0) {
     description += `Detected ${poses.length} person(s):\n`;
 
     poses.forEach((pose, index) => {
-        const behavior = behaviors[index] || 'standing';
+        const behavior = behaviors[index] || 'static';
         description += `  - Person ${index + 1}: Behavior detected as ${behavior}.\n`;
 
         const keypoints = pose.keypoints;
@@ -376,34 +377,33 @@ if (poses && poses.length > 0) {
         function getSpeedDescription(speed) {
     if (speed < 1) return "stationary";
     if (speed < 3) return "moving slowly";
-    if (speed < 7) return "moving at medium speed";
+    if (speed < 7) return "moving at a medium pace";
     if (speed < 15) return "moving quickly";
-    return "unknown speed"; // Default return changed from "very quickly"
+    return "moving at an unknown speed";
 }
+
 
         function getDirectionDescription(degrees) {
     if (degrees < 0) degrees += 360;
-    if (degrees >= 315 || degrees < 45) return "upwards";
+    if (degrees >= 315 || degrees < 45) return "upward";
     if (degrees >= 45 && degrees < 135) return "to the right";
-    if (degrees >= 135 && degrees < 225) return "downwards";
+    if (degrees >= 135 && degrees < 225) return "downward";
     if (degrees >= 225 && degrees < 315) return "to the left";
-    return "undetermined"; // Default return changed from "left"
+    return "in an undetermined direction";
 }
+
 
 
         function getPositionDescription(x, y, width, height) {
     const xThird = width / 3;
     const yThird = height / 3;
 
-    let vertical = y < yThird ? "top" : (y < 2 * yThird ? "middle" : "bottom");
-    let horizontal = x < xThird ? "left" : (x < 2 * xThird ? "center" : "right");
+    const vertical = y < yThird ? "top" : y < 2 * yThird ? "middle" : "bottom";
+    const horizontal = x < xThird ? "left" : x < 2 * xThird ? "center" : "right";
 
-    // If the position does not match any area, we return a default of "unknown position"
-    if (!vertical || !horizontal) {
-        return "unknown position";
-    }
     return `${vertical}-${horizontal}`;
 }
+
 
 
         // Load AI models
