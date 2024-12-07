@@ -704,40 +704,47 @@ updateObjectDisplay();
 
         // Detect motion
         function detectMotion(mat, objects) {
-            const motions = [];
-            const prevFrame = new cv.Mat();
-            cv.cvtColor(mat, prevFrame, cv.COLOR_RGBA2GRAY);
+    const motions = [];
+    const prevFrame = new cv.Mat();
+    cv.cvtColor(mat, prevFrame, cv.COLOR_RGBA2GRAY);
 
-            if (motionHistory.length > 0) {
-                const prevMat = motionHistory[motionHistory.length - 1];
-                const flow = new cv.Mat();
-                cv.calcOpticalFlowFarneback(prevMat, prevFrame, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
+    if (motionHistory.length > 0) {
+        const prevMat = motionHistory[motionHistory.length - 1];
+        const flow = new cv.Mat();
+        cv.calcOpticalFlowFarneback(prevMat, prevFrame, flow, 0.5, 3, 15, 3, 5, 1.2, 0);
 
-                objects.forEach(obj => {
-                    const [x, y, width, height] = obj.bbox.map(Math.round);
-                    const roi = flow.roi(new cv.Rect(x, y, width, height));
-                    const meanFlow = cv.mean(roi);
-                    const speed = Math.sqrt(meanFlow[0] * meanFlow[0] + meanFlow[1] * meanFlow[1]);
+        objects.forEach(obj => {
+            const [x, y, width, height] = obj.bbox.map(Math.round);
+            const roi = flow.roi(new cv.Rect(x, y, width, height));
+            const meanFlow = cv.mean(roi);
+            const speed = Math.sqrt(meanFlow[0] ** 2 + meanFlow[1] ** 2);
 
-                    let behavior = 'standing';
-                    if (speed > 5) behavior = 'walking';
-                    if (speed > 10) behavior = 'running';
-
-                    motions.push({ object: obj.class, behavior, speed });
-
-                    roi.delete();
-                });
-
-                flow.delete();
+            const behavior = classifyMotion(speed); // Classify motion based on speed
+            if (behavior) { // Only push if motion is classified
+                motions.push({ object: obj.class, behavior, speed });
             }
 
-            motionHistory.push(prevFrame);
-            if (motionHistory.length > 2) {
-                motionHistory.shift().delete();
-            }
+            roi.delete();
+        });
 
-            return motions;
-        }
+        flow.delete();
+    }
+
+    motionHistory.push(prevFrame);
+    if (motionHistory.length > 2) {
+        motionHistory.shift().delete();
+    }
+
+    return motions;
+}
+
+// Helper function to classify motion based on speed
+function classifyMotion(speed) {
+    if (speed > 10) return 'running';
+    if (speed > 5) return 'walking';
+    if (speed > 2) return 'moving slowly';
+    return null; // No motion detected if speed is too low
+}
 
         // Detect faces
         async function detectFaces(inputVideo) {
