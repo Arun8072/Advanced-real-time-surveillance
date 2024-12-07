@@ -282,36 +282,43 @@ function updateObjectDisplay() {
                 }
             }
 
-            if (poses && poses.length > 0) {
-                description += `Detected ${poses.length} person(s) pose. `;
-                poses.forEach((pose, index) => {
-                    const keypoints = pose.keypoints;
-                    const leftWrist = keypoints.find(kp => kp.part === 'leftWrist');
-                    const rightWrist = keypoints.find(kp => kp.part === 'rightWrist');
-                    const nose = keypoints.find(kp => kp.part === 'nose');
+            // Pose and behavior analysis
+if (poses && poses.length > 0) {
+    description += `Detected ${poses.length} person(s):\n`;
 
-                    if (leftWrist && rightWrist && nose) {
-                        if (leftWrist.position.y < nose.position.y && rightWrist.position.y < nose.position.y) {
-                            description += `Person ${index + 1} is raising both hands. `;
-                            gestureHistory.push('raising hands');
-                        } else if (Math.abs(leftWrist.position.x - rightWrist.position.x) > 100) {
-                            description += `Person ${index + 1} might be waving. `;
-                            gestureHistory.push('waving');
-                        }
-                    }
+    poses.forEach((pose, index) => {
+        const behavior = behaviors[index] || 'standing';
+        description += `  - Person ${index + 1}: Behavior detected as ${behavior}.\n`;
 
-                    restrictedAreas.forEach((area, areaIndex) => {
-                        if (nose.position.x > area.x && nose.position.x < area.x + area.width &&
-                            nose.position.y > area.y && nose.position.y < area.y + area.height) {
-                            description += `ALERT: Person ${index + 1} is in restricted area ${areaIndex + 1}. `;
-                        }
-                    });
+        const keypoints = pose.keypoints;
+        const nose = keypoints.find(kp => kp.part === 'nose');
+        if (nose) {
+            restrictedAreas.forEach((area, areaIndex) => {
+                const isInRestrictedArea = 
+                    nose.position.x > area.x && nose.position.x < area.x + area.width &&
+                    nose.position.y > area.y && nose.position.y < area.y + area.height;
+                
+                if (isInRestrictedArea) {
+                    description += ` ALERT: Person ${index + 1} is in restricted area ${areaIndex + 1}.\n`;
+                }
+            });
+        } else {
+            description += `    Note: keypoint missing; unable to verify restricted area presence.\n`;
+        }
 
-                    if (behaviors[index]) {
-                        description += `Person ${index + 1} is ${behaviors[index]}. `;
-                    }
-                });
+        // Include additional keypoint analysis (e.g., hand-raising, waving)
+        const leftWrist = keypoints.find(kp => kp.part === 'leftWrist');
+        const rightWrist = keypoints.find(kp => kp.part === 'rightWrist');
+        if (leftWrist && rightWrist && nose) {
+            if (leftWrist.position.y < nose.position.y && rightWrist.position.y < nose.position.y) {
+                description += `    Person ${index + 1} appears to be raising both hands.\n`;
+            } else if (Math.abs(leftWrist.position.x - rightWrist.position.x) > 100) {
+                description += `    Person ${index + 1} might be waving.\n`;
             }
+        }
+    });
+}
+
 
             if (gestureHistory.length > 5) {
                 const recentGestures = gestureHistory.slice(-5);
