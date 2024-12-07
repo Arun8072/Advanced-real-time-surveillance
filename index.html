@@ -29,6 +29,8 @@
             margin: 0 auto;
             aspect-ratio: 4 / 3;
             background-color: #000;
+            border: 5px solid #ddd;
+    border-radius: 5px;
         }
 
         #video, #canvas, #placeholder-canvas {
@@ -56,7 +58,15 @@
             color: white;
             border: none;
             border-radius: 5px;
+            
         }
+        
+        @media only screen and (max-width: 767px) {
+.controls button{
+    width:40%;
+}
+}
+
 
         button:hover {
             background-color: #45a049;
@@ -69,7 +79,7 @@
 
         #total_obj, #detectionResults, #log, #nlpDescription {
             margin-top: 20px;
-            padding: 10px;
+            padding: 5px;
             background-color: white;
             border-radius: 5px;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
@@ -87,18 +97,17 @@
             font-family: monospace;
             font-size: 14px;
             overflow-y: auto;
-            padding-bottom: 30px;
+            padding-bottom: 1px;
             max-height: 200px;
         }
 
         .expand-btn {
-            position: absolute;
-            bottom: 5px;
-            right: 5px;
+            position: sticky;
+            bottom: 0px;
             background-color: rgba(0, 0, 0, 0.5);
             color: white;
             border: none;
-            padding: 5px 10px;
+            padding: 5px 5px;
             cursor: pointer;
             font-size: 12px;
             border-radius: 3px;
@@ -110,7 +119,7 @@
             max-height: none !important;
         }
         .log-container {
-            position: relative;
+            position: relative ;
         }
         .log-content {
             overflow-y: auto;
@@ -120,7 +129,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Advanced Real-time Object, Pose, Face, Behavior, Statistical Anomaly, QR Code Detection, and Text Extraction</h1>
+        <h2 style="text-align:center">Advanced Real-time Surveillance</h2>
         <div class="video-container">
             <video id="video" playsinline></video>
             <canvas id="canvas"></canvas>
@@ -182,6 +191,7 @@
         const extractTextButton = document.getElementById('extractTextButton');
         const detectionResultsDiv = document.getElementById('detectionResults');
         const logDiv = document.getElementById('log');
+     
 
         // Enhanced logging function
         function log(message) {
@@ -191,6 +201,10 @@
             
             document.querySelector('#log .log-content').appendChild(logEntry);
             
+            //auto scroll to bottom 
+            logDiv.scrollTop = logDiv.scrollHeight;
+        
+           
         }
 
         // Update object count
@@ -406,6 +420,10 @@ async function loadModels() {
         console.error('Error details:', error);
         throw new Error('Failed to load one or more AI models');
     }
+    finally{
+        logDiv.scrollTop = logDiv.scrollHeight;
+         
+    }
 }
 
         // Toggle camera
@@ -604,6 +622,7 @@ async function loadModels() {
                     descriptionElement.textContent = `${new Date().toLocaleTimeString()}: ${nlpDescription}`;
                      document.querySelector('#nlpDescription .log-content').appendChild(descriptionElement);
                 
+                nlpDescriptionDiv.scrollTop = nlpDescriptionDiv.scrollHeight;
                     
                 }
             } catch (error) {
@@ -898,6 +917,7 @@ async function loadModels() {
                 parentDiv.classList.toggle('expanded');
                 this.textContent = parentDiv.classList.contains('expanded') ? 'Collapse' : 'Expand';
             });
+            
         });
 
         // Load OpenCV.js
